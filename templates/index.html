@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFC 4.3 Semantic Query Engine</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1117;
+            color: #e1e4e8;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Header --- */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 20px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .header h1 { font-size: 15px; font-weight: 600; color: #58a6ff; white-space: nowrap; }
+
+        .search-box { position: relative; flex: 1; max-width: 400px; }
+
+        .search-box input {
+            width: 100%;
+            padding: 7px 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e1e4e8;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-box input:focus { border-color: #58a6ff; }
+        .search-box input::placeholder { color: #6e7681; }
+
+        .autocomplete {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+            margin-top: 4px; max-height: 260px; overflow-y: auto;
+            z-index: 1000; display: none;
+        }
+        .autocomplete.visible { display: block; }
+        .autocomplete-item { padding: 7px 12px; cursor: pointer; font-size: 12px; border-bottom: 1px solid #21262d; }
+        .autocomplete-item:hover, .autocomplete-item.active { background: #1f6feb33; }
+        .autocomplete-item .code { color: #58a6ff; font-weight: 600; }
+        .autocomplete-item .name { color: #8b949e; margin-left: 6px; }
+
+        .legend { display: flex; gap: 12px; align-items: center; }
+        .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b949e; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .dot-class { background: #58a6ff; }
+        .dot-pset { background: #3fb950; }
+        .dot-property { background: #d29922; }
+        .dot-parent { background: #a371f7; }
+
+        .btn {
+            padding: 5px 12px; background: #21262d; border: 1px solid #30363d;
+            border-radius: 6px; color: #e1e4e8; font-size: 12px; cursor: pointer; white-space: nowrap;
+        }
+        .btn:hover { background: #30363d; }
+
+        /* --- Main layout --- */
+        .main { display: flex; flex: 1; overflow: hidden; }
+
+        /* --- Chat panel (left) --- */
+        .chat-panel {
+            width: 420px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .chat-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #30363d;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .msg { max-width: 95%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+        .msg-user {
+            align-self: flex-end;
+            background: #1f6feb;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .msg-assistant {
+            align-self: flex-start;
+            background: #21262d;
+            color: #c9d1d9;
+            border-bottom-left-radius: 4px;
+        }
+        .msg-assistant p { margin-bottom: 6px; }
+        .msg-assistant p:last-child { margin-bottom: 0; }
+        .msg-assistant strong { color: #e1e4e8; }
+        .msg-assistant code {
+            background: #0d1117; padding: 1px 5px; border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px;
+        }
+        .msg-assistant ul, .msg-assistant ol { margin: 4px 0 4px 18px; }
+        .msg-assistant li { margin-bottom: 2px; }
+
+        .msg-tools {
+            align-self: flex-start;
+            display: flex; gap: 6px; flex-wrap: wrap;
+        }
+        .tool-pill {
+            padding: 3px 10px; border-radius: 12px; font-size: 10px;
+            background: #30363d; color: #8b949e;
+        }
+
+        .msg-thinking {
+            align-self: flex-start;
+            color: #8b949e; font-size: 12px; font-style: italic;
+        }
+
+        .chat-input-area {
+            padding: 12px 16px;
+            border-top: 1px solid #30363d;
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            padding: 8px 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #e1e4e8;
+            font-size: 13px;
+            outline: none;
+        }
+        .chat-input-area input:focus { border-color: #58a6ff; }
+        .chat-input-area input::placeholder { color: #6e7681; }
+
+        .send-btn {
+            padding: 8px 16px;
+            background: #1f6feb;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .send-btn:hover { background: #388bfd; }
+        .send-btn:disabled { background: #21262d; color: #6e7681; cursor: default; }
+
+        /* --- Graph panel (right) --- */
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            background: #0d1117;
+        }
+
+        #overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center; background: #0d1117; z-index: 5;
+            transition: opacity 0.3s;
+        }
+        #overlay.hidden { opacity: 0; pointer-events: none; }
+
+        /* --- Side panel (right, details) --- */
+        .side-panel {
+            width: 320px; background: #161b22; border-left: 1px solid #30363d;
+            overflow-y: auto; flex-shrink: 0; transition: width 0.2s;
+        }
+        .side-panel.collapsed { width: 0; overflow: hidden; }
+        .panel-header {
+            padding: 12px 16px; border-bottom: 1px solid #30363d;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .panel-header h2 { font-size: 13px; font-weight: 600; }
+        .panel-body { padding: 16px; }
+        .detail-section { margin-bottom: 14px; }
+        .detail-section h3 { font-size: 11px; text-transform: uppercase; color: #8b949e; margin-bottom: 4px; letter-spacing: 0.5px; }
+        .detail-section p { font-size: 12px; line-height: 1.5; color: #c9d1d9; }
+        .detail-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; margin: 2px; }
+        .tag-class { background: #1f6feb33; color: #58a6ff; }
+        .tag-pset { background: #23863633; color: #3fb950; }
+        .tag-property { background: #9e6a0333; color: #d29922; }
+        .tag-parent { background: #6e40c933; color: #a371f7; }
+        .allowed-list { list-style: none; padding: 0; }
+        .allowed-list li { padding: 2px 0; font-size: 11px; color: #8b949e; font-family: Consolas, monospace; }
+
+        /* --- Stats bar --- */
+        .stats-bar {
+            padding: 5px 20px; background: #161b22; border-top: 1px solid #30363d;
+            font-size: 11px; color: #8b949e; display: flex; gap: 20px; flex-shrink: 0;
+        }
+
+        .spinner { width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Class links in chat messages */
+        .class-link { color: #58a6ff; cursor: pointer; text-decoration: underline; }
+        .class-link:hover { color: #79c0ff; }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <h1>IFC 4.3 Query Engine</h1>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search class (IfcWall, Bridge...)" autocomplete="off">
+        <div class="autocomplete" id="autocomplete"></div>
+    </div>
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot dot-class"></div>Class</div>
+        <div class="legend-item"><div class="legend-dot dot-pset"></div>PSet</div>
+        <div class="legend-item"><div class="legend-dot dot-property"></div>Prop</div>
+        <div class="legend-item"><div class="legend-dot dot-parent"></div>Parent</div>
+    </div>
+    <div style="margin-left:auto; display:flex; gap:6px;">
+        <button class="btn" id="togglePanel">Details</button>
+        <button class="btn" id="fitBtn">Fit</button>
+    </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+    <!-- Chat panel (left) -->
+    <div class="chat-panel">
+        <div class="chat-header">
+            <span>Chat</span>
+            <button class="btn" id="resetChat" style="font-size:11px; padding:3px 8px;">New Chat</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="msg msg-assistant">
+                <p>Hi! I'm the IFC 4.3 Query Engine. Ask me anything about IFC classes, property sets, or properties.</p>
+                <p>Try: <span class="class-link" onclick="sendChat('What properties does IfcBridge need?')">What properties does IfcBridge need?</span></p>
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" placeholder="Ask about IFC 4.3..." autocomplete="off">
+            <button class="send-btn" id="sendBtn">Send</button>
+        </div>
+    </div>
+
+    <!-- Graph panel (center) -->
+    <div style="position:relative; flex:1; overflow:hidden;">
+        <div id="graph-container"></div>
+        <div id="overlay">
+            <div>
+                <p style="font-size: 14px; color: #58a6ff;">Graph Visualization</p>
+                <p style="margin-top: 6px; color: #8b949e; font-size: 12px;">Search a class or ask a question to see its graph</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Side panel (right) -->
+    <div class="side-panel collapsed" id="sidePanel">
+        <div class="panel-header"><h2>Node Details</h2></div>
+        <div class="panel-body" id="panelBody">
+            <p style="color: #8b949e; font-size: 12px;">Click a node to see details.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar">
+    <span id="statNodes">Nodes: 0</span>
+    <span id="statEdges">Edges: 0</span>
+    <span id="statClass">-</span>
+</div>
+
+<!-- Scripts -->
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script>
+// ============================
+// State
+// ============================
+var network = null;
+var allNodes = null;
+var allEdges = null;
+var searchTimeout = null;
+var sessionId = '';
+var chatBusy = false;
+
+// ============================
+// vis.js
+// ============================
+var VIS_OPTIONS = {
+    nodes: {
+        shape: 'dot',
+        font: { color: '#e1e4e8', size: 12, face: 'system-ui' },
+        borderWidth: 2,
+        shadow: { enabled: true, size: 6, color: 'rgba(0,0,0,0.3)' }
+    },
+    edges: {
+        color: { color: '#30363d', highlight: '#58a6ff', hover: '#58a6ff' },
+        font: { color: '#6e7681', size: 9, face: 'system-ui', strokeWidth: 0 },
+        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
+        arrows: { to: { scaleFactor: 0.5 } }
+    },
+    groups: {
+        class:    { color: { background: '#1f6feb', border: '#58a6ff' }, size: 26, font: { size: 14, bold: true } },
+        parent:   { color: { background: '#6e40c9', border: '#a371f7' }, size: 20, font: { size: 12 } },
+        pset:     { color: { background: '#238636', border: '#3fb950' }, size: 16 },
+        property: { color: { background: '#9e6a03', border: '#d29922' }, size: 10, font: { size: 9 } }
+    },
+    physics: {
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.008, springLength: 100, springConstant: 0.04, damping: 0.4 },
+        stabilization: { iterations: 200, updateInterval: 25 }
+    },
+    interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true }
+};
+
+function initNetwork(nodes, edges) {
+    var container = document.getElementById('graph-container');
+    allNodes = new vis.DataSet(nodes);
+    allEdges = new vis.DataSet(edges);
+    network = new vis.Network(container, { nodes: allNodes, edges: allEdges }, VIS_OPTIONS);
+
+    network.on('click', function(params) {
+        if (params.nodes.length > 0) showNodeDetails(params.nodes[0]);
+    });
+    network.on('doubleClick', function(params) {
+        if (params.nodes.length > 0) {
+            var node = allNodes.get(params.nodes[0]);
+            if (node && (node.group === 'class' || node.group === 'parent')) {
+                loadClassGraph(params.nodes[0].replace('class:', ''));
+            }
+        }
+    });
+    network.on('stabilizationIterationsDone', function() {
+        network.fit({ animation: { duration: 500 } });
+    });
+}
+
+function loadClassGraph(classCode) {
+    var overlay = document.getElementById('overlay');
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = '<div><div class="spinner"></div><p style="color:#8b949e;margin-top:8px;">Loading ' + classCode + '...</p></div>';
+
+    fetch('/api/graph/' + encodeURIComponent(classCode))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data) { overlay.innerHTML = '<div><p style="color:#f85149;">Not found</p></div>'; return; }
+            document.getElementById('searchInput').value = classCode;
+            if (network) { network.destroy(); network = null; }
+            initNetwork(data.nodes, data.edges);
+            setTimeout(function() { overlay.classList.add('hidden'); }, 300);
+            document.getElementById('statNodes').textContent = 'Nodes: ' + data.nodes.length;
+            document.getElementById('statEdges').textContent = 'Edges: ' + data.edges.length;
+            document.getElementById('statClass').textContent = classCode;
+        })
+        .catch(function(err) { overlay.innerHTML = '<div><p style="color:#f85149;">' + err.message + '</p></div>'; });
+}
+
+function showNodeDetails(nodeId) {
+    if (!allNodes) return;
+    var node = allNodes.get(nodeId);
+    if (!node) return;
+
+    // Ensure panel is visible
+    document.getElementById('sidePanel').classList.remove('collapsed');
+
+    var panel = document.getElementById('panelBody');
+    var meta = node.meta || {};
+    var group = node.group || 'unknown';
+    var html = '<div class="detail-section"><span class="detail-tag tag-' + group + '">' + group.charAt(0).toUpperCase() + group.slice(1) + '</span></div>';
+    html += '<div class="detail-section"><h3>Code</h3><p>' + (meta.code || node.label || '-') + '</p></div>';
+    if (meta.name) html += '<div class="detail-section"><h3>Name</h3><p>' + meta.name + '</p></div>';
+    if (meta.definition) html += '<div class="detail-section"><h3>Definition</h3><p>' + meta.definition + '</p></div>';
+    if (meta.data_type) html += '<div class="detail-section"><h3>Data Type</h3><p>' + meta.data_type + '</p></div>';
+    if (meta.property_value_kind) html += '<div class="detail-section"><h3>Value Kind</h3><p>' + meta.property_value_kind + '</p></div>';
+    if (meta.allowed_values && meta.allowed_values.length > 0) {
+        html += '<div class="detail-section"><h3>Allowed Values (' + meta.allowed_values.length + ')</h3><ul class="allowed-list">';
+        meta.allowed_values.forEach(function(av) {
+            html += '<li>' + (av.Code || av.Value || '-');
+            if (av.Description) html += ' — ' + av.Description;
+            html += '</li>';
+        });
+        html += '</ul></div>';
+    }
+    panel.innerHTML = html;
+}
+
+// ============================
+// Search / Autocomplete
+// ============================
+var searchInput = document.getElementById('searchInput');
+var autocompleteEl = document.getElementById('autocomplete');
+var acIndex = -1;
+
+searchInput.addEventListener('input', function() {
+    var val = this.value.trim();
+    acIndex = -1;
+    if (val.length < 1) { autocompleteEl.classList.remove('visible'); return; }
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(function() { fetchSuggestions(val); }, 200);
+});
+
+searchInput.addEventListener('keydown', function(e) {
+    var items = autocompleteEl.querySelectorAll('.autocomplete-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); acIndex = Math.min(acIndex + 1, items.length - 1); updateAC(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); acIndex = Math.max(acIndex - 1, 0); updateAC(items); }
+    else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (acIndex >= 0 && items[acIndex]) items[acIndex].click();
+        else if (searchInput.value.trim()) { loadClassGraph(searchInput.value.trim()); autocompleteEl.classList.remove('visible'); }
+    }
+    else if (e.key === 'Escape') autocompleteEl.classList.remove('visible');
+});
+
+function updateAC(items) { for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === acIndex); }
+
+function fetchSuggestions(term) {
+    fetch('/api/classes?search=' + encodeURIComponent(term))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data || data.length === 0) { autocompleteEl.classList.remove('visible'); return; }
+            var html = '';
+            data.forEach(function(c) {
+                html += '<div class="autocomplete-item" data-code="' + c.code + '"><span class="code">' + c.code + '</span><span class="name">' + (c.name || '') + '</span></div>';
+            });
+            autocompleteEl.innerHTML = html;
+            autocompleteEl.classList.add('visible');
+            var items = autocompleteEl.querySelectorAll('.autocomplete-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    var code = this.getAttribute('data-code');
+                    searchInput.value = code;
+                    autocompleteEl.classList.remove('visible');
+                    loadClassGraph(code);
+                });
+            }
+        })
+        .catch(function() {});
+}
+
+document.addEventListener('mousedown', function(e) { if (!e.target.closest('.search-box')) autocompleteEl.classList.remove('visible'); });
+
+// ============================
+// Chat
+// ============================
+var chatMessages = document.getElementById('chatMessages');
+var chatInput = document.getElementById('chatInput');
+var sendBtn = document.getElementById('sendBtn');
+
+function addChatMessage(role, content) {
+    var div = document.createElement('div');
+    div.className = 'msg msg-' + role;
+    if (role === 'assistant') {
+        div.innerHTML = formatMarkdown(content);
+    } else {
+        div.textContent = content;
+    }
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+}
+
+function addToolPills(tools) {
+    if (!tools || tools.length === 0) return;
+    var div = document.createElement('div');
+    div.className = 'msg-tools';
+    tools.forEach(function(t) {
+        var pill = document.createElement('span');
+        pill.className = 'tool-pill';
+        pill.textContent = t.summary;
+        div.appendChild(pill);
+    });
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addThinking() {
+    var div = document.createElement('div');
+    div.className = 'msg-thinking';
+    div.id = 'thinkingMsg';
+    div.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Thinking...';
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+}
+
+function removeThinking() {
+    var el = document.getElementById('thinkingMsg');
+    if (el) el.remove();
+}
+
+function sendChat(text) {
+    if (chatBusy) return;
+    var message = text || chatInput.value.trim();
+    if (!message) return;
+
+    chatInput.value = '';
+    addChatMessage('user', message);
+    addThinking();
+    chatBusy = true;
+    sendBtn.disabled = true;
+
+    fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message, session_id: sessionId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        removeThinking();
+        chatBusy = false;
+        sendBtn.disabled = false;
+
+        if (data.error) {
+            addChatMessage('assistant', 'Error: ' + data.error);
+            return;
+        }
+
+        sessionId = data.session_id || sessionId;
+
+        // Show tool pills
+        addToolPills(data.tools_used);
+
+        // Show answer
+        addChatMessage('assistant', data.answer || '(no response)');
+
+        // Update graph if a class was queried
+        if (data.graph_class) {
+            try { loadClassGraph(data.graph_class); } catch(e) { console.warn('Graph update failed:', e); }
+        }
+    })
+    .catch(function(err) {
+        removeThinking();
+        chatBusy = false;
+        sendBtn.disabled = false;
+        addChatMessage('assistant', 'Connection error: ' + err.message);
+    });
+}
+
+chatInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+sendBtn.addEventListener('click', function() { sendChat(); });
+
+document.getElementById('resetChat').addEventListener('click', function() {
+    if (sessionId) {
+        fetch('/api/chat/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId })
+        });
+    }
+    sessionId = '';
+    chatMessages.innerHTML = '<div class="msg msg-assistant"><p>Chat reset. Ask me anything about IFC 4.3!</p></div>';
+});
+
+// ============================
+// Simple markdown formatter
+// ============================
+function formatMarkdown(text) {
+    if (!text) return '';
+    // Escape HTML
+    var s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Bold
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Inline code
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Bullet lists
+    s = s.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+    s = s.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+    // Fix nested ul
+    s = s.replace(/<\/ul>\s*<ul>/g, '');
+    // Numbered lists
+    s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    // Paragraphs
+    s = s.replace(/\n\n/g, '</p><p>');
+    s = s.replace(/\n/g, '<br>');
+    // Make IFC class codes clickable
+    s = s.replace(/\b(Ifc[A-Z][a-zA-Z]+)\b/g, '<span class="class-link" onclick="loadClassGraph(\'$1\')">$1</span>');
+    return '<p>' + s + '</p>';
+}
+
+// ============================
+// Buttons
+// ============================
+document.getElementById('fitBtn').addEventListener('click', function() { if (network) network.fit({ animation: { duration: 500 } }); });
+document.getElementById('togglePanel').addEventListener('click', function() {
+    document.getElementById('sidePanel').classList.toggle('collapsed');
+    if (network) setTimeout(function() { network.redraw(); network.fit(); }, 250);
+});
+</script>
+</body>
+</html>

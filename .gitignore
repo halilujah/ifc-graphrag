@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+*.ifc
+data/ifc-4.3.json
+.claude/
