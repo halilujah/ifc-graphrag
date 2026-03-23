@@ -11,12 +11,16 @@ Usage:
 import json
 import logging
 import re
+from datetime import datetime
 
 import neo4j
 from flask import Flask, jsonify, render_template, request
 
-from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, PROJECT_ROOT
 from main_orchestrator import run_agent
+
+IDS_OUTPUT_DIR = PROJECT_ROOT / "data" / "ids_output"
+IDS_OUTPUT_DIR.mkdir(exist_ok=True)
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +198,72 @@ def api_graph_class(class_code: str):
             }
         edges.add((psid, prid, "HAS_PROPERTY"))
 
+    # --- Structural layer: attributes + type targets ---
+    attr_query = """
+    MATCH (c:Class {code: $code})-[:HAS_ATTRIBUTE]->(a:Attribute)
+    OPTIONAL MATCH (a)-[:ATTRIBUTE_TYPE]->(t)
+    RETURN a.qualified_name AS attr_qname,
+           a.name           AS attr_name,
+           a.optional       AS attr_optional,
+           a.raw_type       AS attr_raw_type,
+           a.is_inverse     AS attr_is_inverse,
+           a.position       AS attr_position,
+           labels(t)[0]     AS type_label,
+           CASE WHEN t:Class THEN t.code ELSE t.name END AS type_name
+    ORDER BY a.is_inverse, a.position
+    """
+
+    with driver.session() as session:
+        attr_records = list(session.run(attr_query, code=class_code))
+
+    for rec in attr_records:
+        attr_qname = rec["attr_qname"]
+        if attr_qname is None:
+            continue
+
+        aid = f"attr:{attr_qname}"
+        if aid not in nodes:
+            tooltip = rec["attr_name"] or ""
+            if rec["attr_raw_type"]:
+                tooltip += f"\nType: {rec['attr_raw_type']}"
+            if rec["attr_optional"]:
+                tooltip += "\n(OPTIONAL)"
+            if rec["attr_is_inverse"]:
+                tooltip += "\n(INVERSE)"
+
+            nodes[aid] = {
+                "id": aid,
+                "label": rec["attr_name"],
+                "title": tooltip,
+                "group": "attribute",
+                "meta": {
+                    "qualified_name": attr_qname,
+                    "name": rec["attr_name"],
+                    "optional": rec["attr_optional"],
+                    "raw_type": rec["attr_raw_type"],
+                    "is_inverse": rec["attr_is_inverse"],
+                    "position": rec["attr_position"],
+                },
+            }
+        edges.add((cid, aid, "HAS_ATTRIBUTE"))
+
+        # Type target node
+        type_name = rec["type_name"]
+        type_label = rec["type_label"]
+        if type_name and type_label:
+            group_map = {"Class": "class", "Type": "type", "Enumeration": "enumeration", "SelectType": "selecttype"}
+            tgroup = group_map.get(type_label, "type")
+            tid = f"{tgroup}:{type_name}"
+            if tid not in nodes:
+                nodes[tid] = {
+                    "id": tid,
+                    "label": type_name,
+                    "title": f"{type_label}: {type_name}",
+                    "group": tgroup,
+                    "meta": {"name": type_name, "label": type_label},
+                }
+            edges.add((aid, tid, "ATTRIBUTE_TYPE"))
+
     edge_list = [{"from": e[0], "to": e[1], "label": e[2], "arrows": "to"} for e in edges]
 
     return jsonify({
@@ -266,15 +336,26 @@ def api_node_detail(node_type: str, code: str):
     """Return full details for a single node."""
     driver = _get_driver()
 
-    label_map = {"class": "Class", "pset": "PropertySet", "property": "Property"}
+    label_map = {
+        "class": "Class", "pset": "PropertySet", "property": "Property",
+        "attribute": "Attribute", "type": "Type", "enumeration": "Enumeration",
+        "selecttype": "SelectType", "enumvalue": "EnumValue",
+    }
     label = label_map.get(node_type)
     if not label:
         return jsonify({"error": f"Unknown node type: {node_type}"}), 400
 
-    query = f"MATCH (n:{label} {{code: $code}}) RETURN properties(n) AS props"
+    # Different node types use different key fields
+    key_map = {
+        "Class": "code", "PropertySet": "code", "Property": "code",
+        "Attribute": "qualified_name", "Type": "name", "Enumeration": "name",
+        "SelectType": "name", "EnumValue": "qualified_name",
+    }
+    key_field = key_map.get(label, "code")
+    query = f"MATCH (n:{label} {{{key_field}: $key}}) RETURN properties(n) AS props"
 
     with driver.session() as session:
-        result = session.run(query, code=code).single()
+        result = session.run(query, key=code).single()
 
     if not result:
         return jsonify({"error": f"{label} '{code}' not found"}), 404
@@ -344,16 +425,35 @@ def api_chat():
 
     # Detect if a specific class was queried (for graph update)
     graph_class = None
+    ids_xml = None
+    ids_filename = None
     for t in tool_log:
-        if t["tool"] == "query_class":
-            graph_class = t["args"].get("class_code")
-            break
+        if t["tool"] in ("query_class", "query_class_structure"):
+            graph_class = graph_class or t["args"].get("class_code")
+        if t.get("ids_xml"):
+            ids_xml = t["ids_xml"]
+
+    # Save IDS file to data/ids_output/
+    if ids_xml:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ids_filename = f"ids_{timestamp}.ids"
+        ids_path = IDS_OUTPUT_DIR / ids_filename
+        ids_path.write_text(ids_xml, encoding="utf-8")
+        logger.info("IDS file saved to %s", ids_path)
+
+    # Strip large fields from tool_log before sending to frontend
+    clean_log = []
+    for t in tool_log:
+        entry = {"tool": t["tool"], "summary": t["summary"]}
+        clean_log.append(entry)
 
     return jsonify({
         "answer": answer,
-        "tools_used": tool_log,
+        "tools_used": clean_log,
         "graph_class": graph_class,
         "session_id": session_id,
+        "ids_xml": ids_xml,
+        "ids_filename": ids_filename,
     })
 
 

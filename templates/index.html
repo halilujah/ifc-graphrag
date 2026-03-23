@@ -225,6 +225,39 @@
         /* Class links in chat messages */
         .class-link { color: #58a6ff; cursor: pointer; text-decoration: underline; }
         .class-link:hover { color: #79c0ff; }
+
+        /* IDS preview */
+        .ids-preview {
+            margin-top: 8px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .ids-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            font-size: 11px; font-weight: 600; color: #3fb950;
+        }
+        .ids-actions { display: flex; gap: 6px; }
+        .ids-actions button {
+            padding: 3px 10px; font-size: 10px;
+            background: #21262d; border: 1px solid #30363d;
+            border-radius: 4px; color: #e1e4e8; cursor: pointer;
+        }
+        .ids-actions button:hover { background: #30363d; }
+        .ids-xml {
+            max-height: 300px; overflow: auto; padding: 10px 12px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 11px; line-height: 1.5; color: #c9d1d9;
+            white-space: pre; tab-size: 2;
+        }
+        .ids-xml .xml-tag { color: #7ee787; }
+        .ids-xml .xml-attr { color: #d2a8ff; }
+        .ids-xml .xml-val { color: #a5d6ff; }
+        .ids-collapsed .ids-xml { display: none; }
     </style>
 </head>
 <body>
@@ -549,6 +582,11 @@ function sendChat(text) {
         // Show answer
         addChatMessage('assistant', data.answer || '(no response)');
 
+        // Show IDS preview if generated
+        if (data.ids_xml) {
+            renderIdsPreview(data.ids_xml);
+        }
+
         // Update graph if a class was queried
         if (data.graph_class) {
             try { loadClassGraph(data.graph_class); } catch(e) { console.warn('Graph update failed:', e); }
@@ -603,6 +641,64 @@ function formatMarkdown(text) {
     // Make IFC class codes clickable
     s = s.replace(/\b(Ifc[A-Z][a-zA-Z]+)\b/g, '<span class="class-link" onclick="loadClassGraph(\'$1\')">$1</span>');
     return '<p>' + s + '</p>';
+}
+
+// ============================
+// IDS Preview
+// ============================
+function renderIdsPreview(xmlString) {
+    var div = document.createElement('div');
+    div.className = 'ids-preview';
+
+    // Syntax-highlight the XML
+    var highlighted = xmlString
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/(&lt;\/?)([\w:]+)/g, '$1<span class="xml-tag">$2</span>')
+        .replace(/([\w:]+)(=)/g, '<span class="xml-attr">$1</span>$2')
+        .replace(/(".*?")/g, '<span class="xml-val">$1</span>');
+
+    div.innerHTML =
+        '<div class="ids-header">' +
+        '<span>Generated IDS Specification</span>' +
+        '<div class="ids-actions">' +
+        '<button onclick="toggleIdsXml(this)">Collapse</button>' +
+        '<button onclick="copyIdsXml(this)">Copy</button>' +
+        '<button onclick="downloadIdsXml(this)">Download .ids</button>' +
+        '</div></div>' +
+        '<div class="ids-xml">' + highlighted + '</div>';
+
+    // Store raw XML for copy/download
+    div.dataset.xml = xmlString;
+
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function toggleIdsXml(btn) {
+    var preview = btn.closest('.ids-preview');
+    preview.classList.toggle('ids-collapsed');
+    btn.textContent = preview.classList.contains('ids-collapsed') ? 'Expand' : 'Collapse';
+}
+
+function copyIdsXml(btn) {
+    var xml = btn.closest('.ids-preview').dataset.xml;
+    navigator.clipboard.writeText(xml).then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+    });
+}
+
+function downloadIdsXml(btn) {
+    var xml = btn.closest('.ids-preview').dataset.xml;
+    var blob = new Blob([xml], { type: 'application/xml' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'specification.ids';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // ============================

@@ -26,7 +26,8 @@ from google import genai
 from google.genai import types
 
 from config import GEMINI_API_KEY, GEMINI_MODEL, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
-from neuro_agent import get_class_requirements, list_classes
+from neuro_agent import get_class_requirements, get_class_structure, list_classes
+from ids_pipeline import generate_ids_from_json
 
 logger = logging.getLogger(__name__)
 
@@ -43,25 +44,79 @@ SYSTEM_PROMPT = """\
 You are an IFC 4.3 Semantic Query Engine. You answer questions about the
 IFC 4.3 standard using a Neo4j knowledge graph.
 
-The graph contains:
+The graph contains two layers of knowledge:
+
+Property layer (from bSDD JSON):
   (:Class {code, name, definition}) -[:HAS_PROPERTY_SET]-> (:PropertySet {code, name, definition})
   (:PropertySet) -[:HAS_PROPERTY]-> (:Property {code, name, definition, data_type, property_value_kind, allowed_values})
   (:Class) -[:INHERITS_FROM]-> (:Class)
 
-There are ~1418 Class nodes, ~746 PropertySet nodes, ~2501 Property nodes.
+Structural layer (from EXPRESS schema):
+  (:Class {code, abstract, where_rules}) -[:HAS_ATTRIBUTE]-> (:Attribute {name, optional, aggregate_kind, bounds, raw_type, is_inverse, position, declaring_entity})
+  (:Attribute) -[:ATTRIBUTE_TYPE]-> (:Class | :Type | :Enumeration | :SelectType)
+  (:Attribute) -[:REFERS_TO_CLASS]-> (:Class)   — when an attribute points to another entity
+  (:Enumeration {name}) -[:HAS_VALUE]-> (:EnumValue {value})
+  (:SelectType {name, options}) -[:HAS_OPTION]-> (:Class | :Type | :Enumeration | :SelectType)
+  (:Type {name, underlying_type, kind, aggregate_kind})
 
-You have 3 tools:
+You have 5 tools:
   - query_class: Get all PropertySets and Properties for a single IFC class by code.
+  - query_class_structure: Get the EXPRESS structural definition of an IFC class —
+    explicit attributes with types/optionality, inverse attributes, inheritance chain,
+    and WHERE rules. Use this for structural questions.
   - search_classes: Search classes by keyword (matches code and name).
   - run_cypher: Execute a read-only Cypher query for complex questions.
+  - generate_ids: Generate an IDS (Information Delivery Specification) XML file from
+    a structured JSON specification.
 
 Guidelines:
-  - Use query_class for single-class lookups (e.g. "What is IfcWall?").
+  - Use query_class for property-related questions (PropertySets, Properties).
+  - Use query_class_structure for structural questions (attributes, placement chains,
+    shape representations, inheritance hierarchies, valid enum values, entity closures).
   - Use search_classes to find classes by keyword (e.g. "bridge", "wall").
-  - Use run_cypher for aggregations, comparisons, or traversals across multiple nodes.
+  - Use run_cypher for aggregations, comparisons, traversals, or questions spanning
+    multiple nodes (e.g. "which entities reference IfcProduct?").
   - Always ground your answers in the actual graph data returned by tools.
   - Be concise but thorough. Use bullet points and structured formatting.
   - When listing properties, group them by PropertySet.
+
+IDS Generation:
+  When the user asks to generate an IDS specification, create requirements, or
+  produce delivery specifications, follow this workflow:
+  1. First use query_class / search_classes to find the correct IFC class.
+  2. Use query_class to get exact PropertySet names, Property names, and data types.
+  3. Then call generate_ids with a JSON object matching this structure:
+     {
+       "info": {"title": "...", "description": "..."},
+       "specifications": [{
+         "name": "...",
+         "ifcVersion": "IFC4X3_ADD2",
+         "applicability": {
+           "entity": {"name": {"simpleValue": "IFCWALL"}},
+           "maxOccurs": "unbounded"
+         },
+         "requirements": {
+           "properties": [{
+             "propertySet": {"simpleValue": "Pset_WallCommon"},
+             "baseName": {"simpleValue": "IsExternal"},
+             "dataType": "IFCBOOLEAN",
+             "cardinality": "required"
+           }],
+           "attributes": [{
+             "name": {"simpleValue": "Name"},
+             "cardinality": "required"
+           }]
+         }
+       }]
+     }
+  Key rules:
+  - Entity names MUST be UPPERCASE (e.g. "IFCWALL", not "IfcWall").
+  - dataType MUST be UPPERCASE IFC type (e.g. "IFCTEXT", "IFCBOOLEAN", "IFCLENGTHMEASURE").
+  - Data type mapping from graph: String->IFCTEXT, Real->IFCREAL, Boolean->IFCBOOLEAN,
+    Integer->IFCINTEGER, Character->IFCLABEL.
+  - Use exact PropertySet and Property names from the graph (e.g. "Pset_WallCommon", "IsExternal").
+  - Each IdsValue must have either "simpleValue" (string) or "restriction" (object), not both.
+  - If generate_ids returns validation errors, fix the JSON and retry.
 """
 
 # ---------------------------------------------------------------------------
@@ -105,6 +160,26 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "query_class_structure",
+        "description": (
+            "Get the EXPRESS structural definition of an IFC class: "
+            "explicit attributes with types and optionality, inverse attributes, "
+            "full inheritance chain, and WHERE validation rules. "
+            "Use this for structural questions about placement, representation, "
+            "entity dependencies, and attribute types."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "class_code": {
+                    "type": "string",
+                    "description": "The IFC class code, e.g. 'IfcWall', 'IfcProduct', 'IfcBuildingElement'",
+                }
+            },
+            "required": ["class_code"],
+        },
+    },
+    {
         "name": "run_cypher",
         "description": (
             "Execute a read-only Cypher query against the Neo4j knowledge graph. "
@@ -121,6 +196,33 @@ TOOL_DECLARATIONS = [
                 }
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "generate_ids",
+        "description": (
+            "Generate an IDS (Information Delivery Specification) XML file from a "
+            "structured JSON specification. Call this AFTER using query_class to find "
+            "exact PropertySet names, Property names, and data types. The JSON must "
+            "have 'info' (with 'title') and 'specifications' (list of specs, each "
+            "with 'name', 'ifcVersion', 'applicability' with 'entity', and "
+            "'requirements' with 'properties' and/or 'attributes'). "
+            "Entity names must be UPPERCASE (e.g. 'IFCWALL'). "
+            "dataType must be UPPERCASE IFC type (e.g. 'IFCLENGTHMEASURE'). "
+            "Each value field uses {'simpleValue': '...'} or {'restriction': {...}}."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ids_json_string": {
+                    "type": "string",
+                    "description": (
+                        "The IDS document as a JSON STRING. Must be valid JSON with "
+                        "'info' and 'specifications' keys."
+                    ),
+                }
+            },
+            "required": ["ids_json_string"],
         },
     },
 ]
@@ -212,10 +314,22 @@ def dispatch_tool(name: str, args: dict) -> dict:
 
     if name == "query_class":
         return get_class_requirements(args["class_code"])
+    elif name == "query_class_structure":
+        return get_class_structure(args["class_code"])
     elif name == "search_classes":
         return {"classes": list_classes(args.get("search_term"))}
     elif name == "run_cypher":
         return _run_cypher_safe(args["query"])
+    elif name == "generate_ids":
+        raw = args.get("ids_json_string") or args.get("ids_json", "{}")
+        if isinstance(raw, str):
+            try:
+                ids_data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                return {"error": f"Invalid JSON string: {e}"}
+        else:
+            ids_data = raw
+        return generate_ids_from_json(ids_data)
     else:
         return {"error": f"Unknown tool: {name}"}
 
@@ -300,6 +414,17 @@ def run_agent(user_message: str, history: list | None = None) -> tuple:
         response = _call_with_retry(client, GEMINI_MODEL, contents, config)
 
         candidate = response.candidates[0]
+
+        # Guard against empty content (safety filter, empty response)
+        if candidate.content is None or not candidate.content.parts:
+            reason = getattr(candidate, 'finish_reason', 'unknown')
+            logger.warning("Empty response from Gemini. Finish reason: %s", reason)
+            return (
+                "I could not generate a response. Please try rephrasing.",
+                contents,
+                tool_log,
+            )
+
         # Append assistant response to contents
         contents.append(candidate.content)
 
@@ -328,16 +453,25 @@ def run_agent(user_message: str, history: list | None = None) -> tuple:
             summary = fn_name
             if fn_name == "query_class":
                 summary = f"Queried {fn_args.get('class_code', '?')}"
+            elif fn_name == "query_class_structure":
+                summary = f"Queried structure of {fn_args.get('class_code', '?')}"
             elif fn_name == "search_classes":
                 summary = f"Searched '{fn_args.get('search_term', '?')}'"
             elif fn_name == "run_cypher":
                 summary = "Ran Cypher query"
+            elif fn_name == "generate_ids":
+                summary = "Generated IDS specification"
 
-            tool_log.append({
+            log_entry = {
                 "tool": fn_name,
                 "args": fn_args,
                 "summary": summary,
-            })
+            }
+            # Capture IDS XML for the frontend
+            if fn_name == "generate_ids" and isinstance(result, dict):
+                log_entry["ids_xml"] = result.get("ids_xml")
+
+            tool_log.append(log_entry)
 
             fn_response_parts.append(
                 types.Part.from_function_response(

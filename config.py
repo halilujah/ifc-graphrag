@@ -9,6 +9,8 @@ load_dotenv()
 # Paths
 PROJECT_ROOT = Path(__file__).parent
 IFC_SCHEMA_PATH = PROJECT_ROOT / "data" / "ifc-4.3.json"
+EXPRESS_SCHEMA_PATH = PROJECT_ROOT / "data" / "IFC4X3_ADD2.exp.txt"
+IDS_XSD_PATH = PROJECT_ROOT / "data" / "ids.xsd"
 
 # Neo4j
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
