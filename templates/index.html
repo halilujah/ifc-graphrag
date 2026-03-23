@@ -340,6 +340,15 @@ var allEdges = null;
 var searchTimeout = null;
 var sessionId = '';
 var chatBusy = false;
+var API_KEY = '{{ api_key | default("", true) }}';
+
+// Helper: build headers with API key
+function apiHeaders(extra) {
+    var h = {};
+    if (API_KEY) h['X-API-Key'] = API_KEY;
+    if (extra) { for (var k in extra) h[k] = extra[k]; }
+    return h;
+}
 
 // ============================
 // vis.js
@@ -398,7 +407,7 @@ function loadClassGraph(classCode) {
     overlay.classList.remove('hidden');
     overlay.innerHTML = '<div><div class="spinner"></div><p style="color:#8b949e;margin-top:8px;">Loading ' + classCode + '...</p></div>';
 
-    fetch('/api/graph/' + encodeURIComponent(classCode))
+    fetch('/api/graph/' + encodeURIComponent(classCode), { headers: apiHeaders() })
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(data) {
             if (!data) { overlay.innerHTML = '<div><p style="color:#f85149;">Not found</p></div>'; return; }
@@ -472,7 +481,7 @@ searchInput.addEventListener('keydown', function(e) {
 function updateAC(items) { for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === acIndex); }
 
 function fetchSuggestions(term) {
-    fetch('/api/classes?search=' + encodeURIComponent(term))
+    fetch('/api/classes?search=' + encodeURIComponent(term), { headers: apiHeaders() })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (!data || data.length === 0) { autocompleteEl.classList.remove('visible'); return; }
@@ -560,7 +569,7 @@ function sendChat(text) {
 
     fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ message: message, session_id: sessionId })
     })
     .then(function(r) { return r.json(); })
@@ -609,7 +618,7 @@ document.getElementById('resetChat').addEventListener('click', function() {
     if (sessionId) {
         fetch('/api/chat/reset', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ session_id: sessionId })
         });
     }

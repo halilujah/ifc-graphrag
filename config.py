@@ -21,6 +21,15 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# Security
+API_SECRET_KEY = os.getenv("API_SECRET_KEY", "")  # Required for /api/* in production
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")  # Comma-separated origins
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+MAX_CHAT_MESSAGE_LENGTH = int(os.getenv("MAX_CHAT_MESSAGE_LENGTH", "2000"))
+
+# Server
+PORT = int(os.getenv("PORT", "8080"))
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,

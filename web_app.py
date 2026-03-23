@@ -5,18 +5,25 @@ IFC Semantic Query Engine — Flask server with:
 
 Usage:
     python web_app.py
-    # Open http://localhost:5000
+    # Open http://localhost:8080
 """
 
 import json
 import logging
 import re
+import time
+from collections import defaultdict
 from datetime import datetime
+from functools import wraps
 
 import neo4j
 from flask import Flask, jsonify, render_template, request
 
-from config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, PROJECT_ROOT
+from config import (
+    NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, PROJECT_ROOT,
+    API_SECRET_KEY, ALLOWED_ORIGINS, RATE_LIMIT_PER_MINUTE,
+    MAX_CHAT_MESSAGE_LENGTH, PORT,
+)
 from main_orchestrator import run_agent
 
 IDS_OUTPUT_DIR = PROJECT_ROOT / "data" / "ids_output"
@@ -25,6 +32,58 @@ IDS_OUTPUT_DIR.mkdir(exist_ok=True)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Security middleware
+# ---------------------------------------------------------------------------
+
+# Simple in-memory rate limiter (per IP, sliding window)
+_rate_log: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit() -> bool:
+    """Return True if request is within rate limit."""
+    ip = request.remote_addr or "unknown"
+    now = time.time()
+    window = _rate_log[ip]
+    # Prune entries older than 60s
+    _rate_log[ip] = [t for t in window if now - t < 60]
+    if len(_rate_log[ip]) >= RATE_LIMIT_PER_MINUTE:
+        return False
+    _rate_log[ip].append(now)
+    return True
+
+
+@app.before_request
+def _security_checks():
+    """Run security checks before every API request."""
+    # Only protect /api/* routes
+    if not request.path.startswith("/api/"):
+        return None
+
+    # 1. API key check (skip if not configured — local dev)
+    if API_SECRET_KEY:
+        provided = request.headers.get("X-API-Key", "")
+        if provided != API_SECRET_KEY:
+            return jsonify({"error": "Invalid or missing API key"}), 401
+
+    # 2. Rate limiting
+    if not _check_rate_limit():
+        return jsonify({"error": "Rate limit exceeded. Try again in a minute."}), 429
+
+
+@app.after_request
+def _add_cors_headers(response):
+    """Add CORS headers to every response."""
+    origin = request.headers.get("Origin", "")
+    if ALLOWED_ORIGINS == "*":
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    elif origin and origin in [o.strip() for o in ALLOWED_ORIGINS.split(",")]:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
 
 _driver: neo4j.Driver | None = None
 
@@ -42,7 +101,7 @@ def _get_driver() -> neo4j.Driver:
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", api_key=API_SECRET_KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +465,9 @@ def api_chat():
     if not user_message:
         return jsonify({"error": "Empty message"}), 400
 
+    if len(user_message) > MAX_CHAT_MESSAGE_LENGTH:
+        return jsonify({"error": f"Message too long (max {MAX_CHAT_MESSAGE_LENGTH} chars)"}), 400
+
     session_id = data.get("session_id", "")
     if not session_id:
         import uuid
@@ -473,5 +535,5 @@ def api_chat_reset():
 
 if __name__ == "__main__":
     print("Starting IFC Semantic Query Engine...")
-    print("Open http://localhost:5000 in your browser")
-    app.run(debug=True, port=5000)
+    print(f"Open http://localhost:{PORT} in your browser")
+    app.run(debug=True, host="0.0.0.0", port=PORT)

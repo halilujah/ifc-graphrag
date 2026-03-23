@@ -4,3 +4,4 @@ __pycache__/
 *.ifc
 data/
 .claude/
+.dockerignore
