@@ -21,7 +21,7 @@ from flask import Flask, jsonify, render_template, request
 
 from config import (
     NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, PROJECT_ROOT,
-    API_SECRET_KEY, ALLOWED_ORIGINS, RATE_LIMIT_PER_MINUTE,
+    API_SECRET_KEY, UI_ACCESS_TOKEN, ALLOWED_ORIGINS, RATE_LIMIT_PER_MINUTE,
     MAX_CHAT_MESSAGE_LENGTH, PORT,
 )
 from main_orchestrator import run_agent
@@ -58,11 +58,17 @@ def _check_rate_limit() -> bool:
 @app.before_request
 def _security_checks():
     """Run security checks before every API request."""
-    # Only protect /api/* routes
-    if not request.path.startswith("/api/"):
+    # Only protect /api/* routes (except auth check)
+    if not request.path.startswith("/api/") or request.path == "/api/auth/check":
         return None
 
-    # 1. API key check (skip if not configured — local dev)
+    # 1. Access token check (link-based sharing)
+    if UI_ACCESS_TOKEN:
+        provided_token = request.headers.get("X-Access-Token", "")
+        if provided_token != UI_ACCESS_TOKEN:
+            return jsonify({"error": "Invalid or missing access token"}), 401
+
+    # 2. API key check (skip if not configured — local dev)
     if API_SECRET_KEY:
         provided = request.headers.get("X-API-Key", "")
         if provided != API_SECRET_KEY:
@@ -81,7 +87,7 @@ def _add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
     elif origin and origin in [o.strip() for o in ALLOWED_ORIGINS.split(",")]:
         response.headers["Access-Control-Allow-Origin"] = origin
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key, X-Access-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
@@ -107,6 +113,16 @@ def index():
 # ---------------------------------------------------------------------------
 # API: class search
 # ---------------------------------------------------------------------------
+
+@app.route("/api/auth/check", methods=["POST"])
+def api_auth_check():
+    """Check if the provided access token is valid. Called before security middleware runs."""
+    data = request.get_json() or {}
+    token = data.get("token", "")
+    if not UI_ACCESS_TOKEN:
+        return jsonify({"valid": True})
+    return jsonify({"valid": token == UI_ACCESS_TOKEN})
+
 
 @app.route("/api/classes")
 def api_classes():

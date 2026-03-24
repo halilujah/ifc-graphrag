@@ -78,12 +78,28 @@
 
         /* --- Chat panel (left) --- */
         .chat-panel {
-            width: 420px;
+            width: 540px;
+            min-width: 320px;
+            max-width: 70vw;
             background: #161b22;
             border-right: 1px solid #30363d;
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
+            position: relative;
+        }
+
+        .chat-resize-handle {
+            position: absolute;
+            top: 0; right: -3px; bottom: 0;
+            width: 6px;
+            cursor: col-resize;
+            z-index: 20;
+        }
+        .chat-resize-handle:hover,
+        .chat-resize-handle.active {
+            background: #58a6ff;
+            opacity: 0.4;
         }
 
         .chat-header {
@@ -175,6 +191,20 @@
         .send-btn:hover { background: #388bfd; }
         .send-btn:disabled { background: #21262d; color: #6e7681; cursor: default; }
 
+        .ids-btn {
+            padding: 8px 12px;
+            background: #238636;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .ids-btn:hover { background: #2ea043; }
+        .ids-btn:disabled { background: #21262d; color: #6e7681; cursor: default; }
+
         /* --- Graph panel (right) --- */
         #graph-container {
             width: 100%;
@@ -258,9 +288,46 @@
         .ids-xml .xml-attr { color: #d2a8ff; }
         .ids-xml .xml-val { color: #a5d6ff; }
         .ids-collapsed .ids-xml { display: none; }
+
+        /* --- Token gate overlay --- */
+        #tokenGate {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: #0f1117;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9999;
+        }
+        #tokenGate.hidden { display: none; }
+        .token-box {
+            background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+            padding: 32px; max-width: 380px; width: 90%; text-align: center;
+        }
+        .token-box h2 { font-size: 16px; color: #58a6ff; margin-bottom: 8px; }
+        .token-box p { font-size: 12px; color: #8b949e; margin-bottom: 16px; }
+        .token-box input {
+            width: 100%; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d;
+            border-radius: 6px; color: #e1e4e8; font-size: 13px; outline: none; margin-bottom: 12px;
+        }
+        .token-box input:focus { border-color: #58a6ff; }
+        .token-box .token-btn {
+            width: 100%; padding: 10px; background: #1f6feb; border: none; border-radius: 6px;
+            color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .token-box .token-btn:hover { background: #388bfd; }
+        .token-box .token-error { color: #f85149; font-size: 11px; margin-top: 8px; display: none; }
     </style>
 </head>
 <body>
+
+<!-- Token gate -->
+<div id="tokenGate">
+    <div class="token-box">
+        <h2>IFC 4.3 Query Engine</h2>
+        <p>Enter your access token to continue</p>
+        <input type="text" id="tokenInput" placeholder="Paste your access token" autocomplete="off">
+        <button class="token-btn" id="tokenSubmit">Enter</button>
+        <p class="token-error" id="tokenError">Invalid token. Please try again.</p>
+    </div>
+</div>
 
 <!-- Header -->
 <div class="header">
@@ -284,7 +351,7 @@
 <!-- Main -->
 <div class="main">
     <!-- Chat panel (left) -->
-    <div class="chat-panel">
+    <div class="chat-panel" id="chatPanel">
         <div class="chat-header">
             <span>Chat</span>
             <button class="btn" id="resetChat" style="font-size:11px; padding:3px 8px;">New Chat</button>
@@ -298,7 +365,9 @@
         <div class="chat-input-area">
             <input type="text" id="chatInput" placeholder="Ask about IFC 4.3..." autocomplete="off">
             <button class="send-btn" id="sendBtn">Send</button>
+            <button class="ids-btn" id="idsBtn" title="Generate IDS specification based on the current conversation">IDS</button>
         </div>
+        <div class="chat-resize-handle" id="chatResizeHandle"></div>
     </div>
 
     <!-- Graph panel (center) -->
@@ -341,14 +410,82 @@ var searchTimeout = null;
 var sessionId = '';
 var chatBusy = false;
 var API_KEY = '{{ api_key | default("", true) }}';
+var ACCESS_TOKEN = '';
 
-// Helper: build headers with API key
+// Helper: build headers with API key + access token
 function apiHeaders(extra) {
     var h = {};
     if (API_KEY) h['X-API-Key'] = API_KEY;
+    if (ACCESS_TOKEN) h['X-Access-Token'] = ACCESS_TOKEN;
     if (extra) { for (var k in extra) h[k] = extra[k]; }
     return h;
 }
+
+// ============================
+// Token gate
+// ============================
+(function initTokenGate() {
+    var gate = document.getElementById('tokenGate');
+    var input = document.getElementById('tokenInput');
+    var btn = document.getElementById('tokenSubmit');
+    var error = document.getElementById('tokenError');
+
+    // Check URL param first, then localStorage
+    var params = new URLSearchParams(window.location.search);
+    var urlToken = params.get('token');
+    var storedToken = localStorage.getItem('ifc_access_token');
+    var initialToken = urlToken || storedToken || '';
+
+    if (initialToken) {
+        validateToken(initialToken, function(valid) {
+            if (valid) {
+                ACCESS_TOKEN = initialToken;
+                localStorage.setItem('ifc_access_token', initialToken);
+                // Clean token from URL without reload
+                if (urlToken && window.history.replaceState) {
+                    var cleanUrl = window.location.pathname;
+                    window.history.replaceState({}, '', cleanUrl);
+                }
+                gate.classList.add('hidden');
+            } else {
+                localStorage.removeItem('ifc_access_token');
+                gate.classList.remove('hidden');
+            }
+        });
+    }
+
+    function validateToken(token, cb) {
+        fetch('/api/auth/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) { cb(data.valid); })
+        .catch(function() { cb(false); });
+    }
+
+    function submit() {
+        var token = input.value.trim();
+        if (!token) return;
+        error.style.display = 'none';
+        validateToken(token, function(valid) {
+            if (valid) {
+                ACCESS_TOKEN = token;
+                localStorage.setItem('ifc_access_token', token);
+                gate.classList.add('hidden');
+            } else {
+                error.style.display = 'block';
+                input.select();
+            }
+        });
+    }
+
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') submit();
+    });
+})();
 
 // ============================
 // vis.js
@@ -556,6 +693,13 @@ function removeThinking() {
     if (el) el.remove();
 }
 
+function sendChatWithDisplay(backendMsg, displayMsg) {
+    if (chatBusy) return;
+    if (!backendMsg) return;
+    addChatMessage('user', displayMsg || backendMsg);
+    _doSendChat(backendMsg);
+}
+
 function sendChat(text) {
     if (chatBusy) return;
     var message = text || chatInput.value.trim();
@@ -563,9 +707,14 @@ function sendChat(text) {
 
     chatInput.value = '';
     addChatMessage('user', message);
+    _doSendChat(message);
+}
+
+function _doSendChat(message) {
     addThinking();
     chatBusy = true;
     sendBtn.disabled = true;
+    document.getElementById('idsBtn').disabled = true;
 
     fetch('/api/chat', {
         method: 'POST',
@@ -577,6 +726,7 @@ function sendChat(text) {
         removeThinking();
         chatBusy = false;
         sendBtn.disabled = false;
+        document.getElementById('idsBtn').disabled = false;
 
         if (data.error) {
             addChatMessage('assistant', 'Error: ' + data.error);
@@ -591,9 +741,10 @@ function sendChat(text) {
         // Show answer
         addChatMessage('assistant', data.answer || '(no response)');
 
-        // Show IDS preview if generated
+        // Show IDS preview and auto-download if generated
         if (data.ids_xml) {
-            renderIdsPreview(data.ids_xml);
+            renderIdsPreview(data.ids_xml, data.ids_filename);
+            autoDownloadIds(data.ids_xml, data.ids_filename);
         }
 
         // Update graph if a class was queried
@@ -605,6 +756,7 @@ function sendChat(text) {
         removeThinking();
         chatBusy = false;
         sendBtn.disabled = false;
+        document.getElementById('idsBtn').disabled = false;
         addChatMessage('assistant', 'Connection error: ' + err.message);
     });
 }
@@ -613,6 +765,20 @@ chatInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
 sendBtn.addEventListener('click', function() { sendChat(); });
+
+// IDS button — sends a generate_ids request with hidden system instruction
+document.getElementById('idsBtn').addEventListener('click', function() {
+    if (chatBusy) return;
+    var userText = chatInput.value.trim();
+    var displayMsg = userText
+        ? userText + '\n\nGenerate an IDS specification for this.'
+        : 'Generate an IDS specification based on our conversation.';
+    var hiddenMsg = userText
+        ? userText + '\n\nGenerate an IDS specification for this. Do not ask questions or clarifications, just generate it immediately using the data from the graph.'
+        : 'Generate an IDS specification based on our conversation so far. Include all relevant properties discussed. Do not ask questions or clarifications, just generate it immediately using the data from the graph.';
+    chatInput.value = '';
+    sendChatWithDisplay(hiddenMsg, displayMsg);
+});
 
 document.getElementById('resetChat').addEventListener('click', function() {
     if (sessionId) {
@@ -655,7 +821,7 @@ function formatMarkdown(text) {
 // ============================
 // IDS Preview
 // ============================
-function renderIdsPreview(xmlString) {
+function renderIdsPreview(xmlString, filename) {
     var div = document.createElement('div');
     div.className = 'ids-preview';
 
@@ -676,8 +842,9 @@ function renderIdsPreview(xmlString) {
         '</div></div>' +
         '<div class="ids-xml">' + highlighted + '</div>';
 
-    // Store raw XML for copy/download
+    // Store raw XML and filename for copy/download
     div.dataset.xml = xmlString;
+    div.dataset.filename = filename || 'specification.ids';
 
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -698,12 +865,16 @@ function copyIdsXml(btn) {
 }
 
 function downloadIdsXml(btn) {
-    var xml = btn.closest('.ids-preview').dataset.xml;
+    var preview = btn.closest('.ids-preview');
+    autoDownloadIds(preview.dataset.xml, preview.dataset.filename);
+}
+
+function autoDownloadIds(xml, filename) {
     var blob = new Blob([xml], { type: 'application/xml' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'specification.ids';
+    a.download = filename || 'specification.ids';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -718,6 +889,42 @@ document.getElementById('togglePanel').addEventListener('click', function() {
     document.getElementById('sidePanel').classList.toggle('collapsed');
     if (network) setTimeout(function() { network.redraw(); network.fit(); }, 250);
 });
+
+// ============================
+// Chat panel resize
+// ============================
+(function initResize() {
+    var handle = document.getElementById('chatResizeHandle');
+    var panel = document.getElementById('chatPanel');
+    var dragging = false;
+
+    handle.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        dragging = true;
+        handle.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        var newWidth = e.clientX;
+        var min = parseInt(getComputedStyle(panel).minWidth) || 320;
+        var max = window.innerWidth * 0.7;
+        if (newWidth >= min && newWidth <= max) {
+            panel.style.width = newWidth + 'px';
+        }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (network) { network.redraw(); network.fit(); }
+    });
+})();
 </script>
 </body>
 </html>

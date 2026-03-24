@@ -85,7 +85,15 @@ IDS Generation:
   produce delivery specifications, follow this workflow:
   1. First use query_class / search_classes to find the correct IFC class.
   2. Use query_class to get exact PropertySet names, Property names, and data types.
-  3. Then call generate_ids with a JSON object matching this structure:
+  3. Then call generate_ids with a JSON object matching this structure.
+  IMPORTANT: Do NOT ask the user for clarification. Make reasonable decisions yourself:
+  - Include ALL relevant properties from the queried class as "required".
+  - Use the data types from the graph.
+  - Generate a descriptive title automatically.
+  - If the conversation discussed specific properties, include those. Otherwise include
+    all properties from the most relevant property sets.
+  Just generate the IDS — do not ask what to include.
+  JSON structure:
      {
        "info": {"title": "...", "description": "..."},
        "specifications": [{

@@ -1,0 +1,11 @@
+.git
+.env
+__pycache__/
+*.pyc
+*.ifc
+data/
+.claude/
+.dockerignore
+WHITEPAPER.md
+DEPLOYMENT.md
+examples.md

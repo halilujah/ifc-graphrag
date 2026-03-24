@@ -11,7 +11,7 @@ COPY config.py main_orchestrator.py neuro_agent.py web_app.py ./
 COPY express_parser.py ingest_graph.py ./
 COPY ids_pipeline.py ids_models.py ids_serializer.py ids_validator.py ./
 COPY templates/ templates/
-COPY data/ids.xsd data/ids.xsd
+COPY ids.xsd data/ids.xsd
 
 # Create output directory
 RUN mkdir -p data/ids_output

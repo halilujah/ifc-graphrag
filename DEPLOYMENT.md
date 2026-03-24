@@ -131,6 +131,26 @@ Save the output — you'll need it in the next step.
 
 ---
 
+## Step 5b: Generate a UI Access Token
+
+This token controls who can access the web UI. When set, users must visit `https://your-url/?token=YOUR_TOKEN` — anyone without the token sees "Access denied".
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(16))"
+```
+
+Share the full link (`https://your-url/?token=abc123...`) with your advisor or collaborators. To revoke access, just change the token:
+
+```bash
+gcloud run services update ifc-query-engine \
+  --region europe-west1 \
+  --update-env-vars UI_ACCESS_TOKEN=new-token-here
+```
+
+No rebuild needed — Cloud Run restarts in seconds.
+
+---
+
 ## Step 6: Deploy to Cloud Run
 
 ### Option A: Using the deploy script
@@ -143,6 +163,7 @@ export NEO4J_USER="neo4j"
 export NEO4J_PASSWORD="your-aura-password"
 export GEMINI_API_KEY="AIza..."
 export API_SECRET_KEY="your-generated-secret"
+export UI_ACCESS_TOKEN="your-generated-token"
 
 chmod +x deploy.sh
 ./deploy.sh
@@ -228,6 +249,7 @@ NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=password123 pyth
 
 | Measure | Description |
 |---------|-------------|
+| **UI Access Token** | The web UI requires `?token=...` in the URL. Share the link with collaborators; revoke by changing the token (no rebuild needed). |
 | **API Secret Key** | All `/api/*` endpoints require `X-API-Key` header. The key is injected into the frontend server-side — external scripts cannot call the API without it. |
 | **Rate Limiting** | 30 requests/minute per IP address (configurable via `RATE_LIMIT_PER_MINUTE`). |
 | **CORS Whitelist** | Set `ALLOWED_ORIGINS` to your Cloud Run URL to block cross-origin requests. |
@@ -246,6 +268,7 @@ NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=password123 pyth
 | `GEMINI_API_KEY` | Yes | — | Google Gemini API key |
 | `GEMINI_MODEL` | No | `gemini-2.5-flash` | Gemini model to use |
 | `API_SECRET_KEY` | Recommended | — | Secret for API authentication (empty = no auth) |
+| `UI_ACCESS_TOKEN` | Recommended | — | Token required in URL to access UI (empty = open access) |
 | `ALLOWED_ORIGINS` | No | `*` | Comma-separated allowed CORS origins |
 | `RATE_LIMIT_PER_MINUTE` | No | `30` | Max API requests per IP per minute |
 | `MAX_CHAT_MESSAGE_LENGTH` | No | `2000` | Max chat message characters |

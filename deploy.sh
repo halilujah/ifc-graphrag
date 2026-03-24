@@ -46,13 +46,16 @@ gcloud run deploy "$SERVICE_NAME" \
   --min-instances 0 \
   --max-instances 3 \
   --timeout 120 \
-  --set-env-vars "NEO4J_URI=${NEO4J_URI},NEO4J_USER=${NEO4J_USER},NEO4J_PASSWORD=${NEO4J_PASSWORD},GEMINI_API_KEY=${GEMINI_API_KEY},GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash},API_SECRET_KEY=${API_SECRET_KEY},ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*},RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-30}"
+  --set-env-vars "NEO4J_URI=${NEO4J_URI},NEO4J_USER=${NEO4J_USER},NEO4J_PASSWORD=${NEO4J_PASSWORD},GEMINI_API_KEY=${GEMINI_API_KEY},GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash},API_SECRET_KEY=${API_SECRET_KEY},UI_ACCESS_TOKEN=${UI_ACCESS_TOKEN:-},ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*},RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-30}"
 
 # ---------- 4. Get URL ----------
 URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
 echo ""
 echo "=== Deployment complete! ==="
 echo "URL: $URL"
+if [ -n "${UI_ACCESS_TOKEN:-}" ]; then
+  echo "Share this link: $URL/?token=$UI_ACCESS_TOKEN"
+fi
 echo ""
 echo "Set ALLOWED_ORIGINS to $URL for tighter security:"
 echo "  gcloud run services update $SERVICE_NAME --region $REGION --set-env-vars ALLOWED_ORIGINS=$URL"

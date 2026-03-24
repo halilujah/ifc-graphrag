@@ -23,6 +23,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Security
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "")  # Required for /api/* in production
+UI_ACCESS_TOKEN = os.getenv("UI_ACCESS_TOKEN", "")  # Token required in URL to access UI
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*")  # Comma-separated origins
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 MAX_CHAT_MESSAGE_LENGTH = int(os.getenv("MAX_CHAT_MESSAGE_LENGTH", "2000"))
