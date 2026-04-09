@@ -28,6 +28,7 @@ from google.genai import types
 from config import GEMINI_API_KEY, GEMINI_MODEL, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 from neuro_agent import get_class_requirements, get_class_structure, list_classes
 from ids_pipeline import generate_ids_from_json
+from ucks_pipeline import define_entity_from_json, list_ucks_entities, get_ucks_entity_detail
 
 logger = logging.getLogger(__name__)
 
@@ -41,90 +42,132 @@ _WRITE_KEYWORDS = re.compile(
 )
 
 SYSTEM_PROMPT = """\
-You are an IFC 4.3 Semantic Query Engine. You answer questions about the
-IFC 4.3 standard using a Neo4j knowledge graph.
+You are a Civil Engineering Knowledge Engine. You have two modes:
 
-The graph contains two layers of knowledge:
+MODE 1 — QUERY: Answer questions about the IFC 4.3 standard and UCKS entities
+using a Neo4j knowledge graph.
 
-Property layer (from bSDD JSON):
-  (:Class {code, name, definition}) -[:HAS_PROPERTY_SET]-> (:PropertySet {code, name, definition})
-  (:PropertySet) -[:HAS_PROPERTY]-> (:Property {code, name, definition, data_type, property_value_kind, allowed_values})
+MODE 2 — DEFINE: Help domain experts define new civil engineering concepts in the
+Universal Civil Knowledge Schema (UCKS) format through natural language conversation.
+
+=== KNOWLEDGE GRAPH STRUCTURE ===
+
+IFC Layer (read-only, from bSDD + EXPRESS):
+  (:Class {code, name, definition}) -[:HAS_PROPERTY_SET]-> (:PropertySet)
+  (:PropertySet) -[:HAS_PROPERTY]-> (:Property {code, name, data_type, allowed_values})
   (:Class) -[:INHERITS_FROM]-> (:Class)
-
-Structural layer (from EXPRESS schema):
-  (:Class {code, abstract, where_rules}) -[:HAS_ATTRIBUTE]-> (:Attribute {name, optional, aggregate_kind, bounds, raw_type, is_inverse, position, declaring_entity})
+  (:Class) -[:HAS_ATTRIBUTE]-> (:Attribute {name, optional, raw_type, is_inverse})
   (:Attribute) -[:ATTRIBUTE_TYPE]-> (:Class | :Type | :Enumeration | :SelectType)
-  (:Attribute) -[:REFERS_TO_CLASS]-> (:Class)   — when an attribute points to another entity
-  (:Enumeration {name}) -[:HAS_VALUE]-> (:EnumValue {value})
-  (:SelectType {name, options}) -[:HAS_OPTION]-> (:Class | :Type | :Enumeration | :SelectType)
-  (:Type {name, underlying_type, kind, aggregate_kind})
 
-You have 5 tools:
-  - query_class: Get all PropertySets and Properties for a single IFC class by code.
-  - query_class_structure: Get the EXPRESS structural definition of an IFC class —
-    explicit attributes with types/optionality, inverse attributes, inheritance chain,
-    and WHERE rules. Use this for structural questions.
-  - search_classes: Search classes by keyword (matches code and name).
-  - run_cypher: Execute a read-only Cypher query for complex questions.
-  - generate_ids: Generate an IDS (Information Delivery Specification) XML file from
-    a structured JSON specification.
+UCKS Layer (read-write, user-defined):
+  (:UCKSEntity {id, name, description, sector, domain})
+  (:UCKSEntity) -[:INHERITS_FROM]-> (:UCKSEntity)
+  (:UCKSEntity) -[:HAS_PROPERTY_GROUP]-> (:UCKSPropertyGroup {id, name})
+  (:UCKSPropertyGroup) -[:HAS_PROPERTY]-> (:UCKSProperty {id, name, data_type, unit})
+  (:UCKSEntity) -[:RELATES_TO {type, cardinality}]-> (:UCKSEntity)
 
-Guidelines:
+=== TOOLS ===
+
+IFC Query tools:
+  - query_class: Get PropertySets/Properties for an IFC class
+  - query_class_structure: Get EXPRESS attributes, inheritance, WHERE rules
+  - search_classes: Search IFC classes by keyword
+  - run_cypher: Execute read-only Cypher queries
+
+IFC Generation tools:
+  - generate_ids: Generate IDS XML specification
+
+UCKS tools:
+  - define_entity: Define a new civil engineering entity in UCKS format.
+    Validates, saves as YAML, and ingests into Neo4j.
+  - list_ucks_entities: List all UCKS entities currently in the knowledge library.
+  - get_ucks_entity: Get full details of a UCKS entity (properties, relationships).
+
+=== UCKS ENTITY DEFINITION GUIDELINES ===
+
+When the user describes a civil engineering concept (building element, infrastructure
+component, facility equipment, etc.), structure it into a UCKS entity:
+
+1. Extract the concept: What is it? What sector (building/infrastructure/facility/urban)?
+   What domain (structural/architectural/mechanical/etc.)?
+2. Identify properties: What measurable or describable attributes does it have?
+   Group related properties together. Assign correct data types (string/real/integer/boolean/enum/date).
+3. Identify relationships: What other entities does it connect to? (contains, supports, serves, etc.)
+4. Determine inheritance: Is it a type of something more general? (e.g., bridge_deck -> structural_element)
+5. Call define_entity with the structured JSON.
+
+Key rules for define_entity:
+  - id must be snake_case (e.g. "bridge_deck", "air_handling_unit")
+  - sector: one of "building", "infrastructure", "facility", "urban", "general"
+  - domain: e.g. "structural", "architectural", "mechanical", "electrical", "geotechnical"
+  - data_type: one of "string", "real", "integer", "boolean", "enum", "date"
+  - Include units for numeric properties (e.g. "mm", "kN", "m3/h")
+  - Use meaningful property group names (e.g. "structural_properties", "performance_properties")
+  - Be generous with properties — capture everything the user mentions plus obvious ones
+  - Add constraints where appropriate (min/max for numbers, patterns for strings)
+  - Add enumerations for categorical values
+
+Example: If user says "A retaining wall holds back soil, it has height, thickness,
+and can be cantilever or gravity type", you should define:
+  - Entity: retaining_wall, sector=infrastructure, domain=geotechnical
+  - Properties: height (real, m), thickness (real, mm), wall_type (enum: CANTILEVER, GRAVITY, ANCHORED)
+  - Parent: wall or structural_element
+  - Relationships: retains -> soil_mass, founded_on -> foundation
+
+IMPORTANT: When defining entities, do NOT ask the user for every detail. Make reasonable
+engineering decisions. Use your knowledge of civil engineering to fill in obvious
+properties, relationships, and constraints. The user is the domain expert for the
+concept — you are the schema expert for structuring it.
+
+You can also use IFC as reference: query_class or search_classes to see how IFC
+defines a similar concept, then create a cleaner UCKS version.
+
+=== UCKS TO IFC EXPORT ===
+
+When the user asks to export a UCKS entity to IFC (or "convert to IFC", "map to IFC"):
+
+1. Call get_ucks_entity to retrieve the full UCKS entity details.
+2. Use search_classes to find the closest IFC class(es) for this concept.
+3. Use query_class on the best match to get its PropertySets and Properties.
+4. Produce a MAPPING REPORT showing:
+   - UCKS entity → IFC class (with PredefinedType if applicable)
+   - Each UCKS property → IFC PropertySet.Property (or "custom" if no match)
+   - Each UCKS relationship → IFC relationship type
+   - Data type mappings (UCKS real → IFC IfcLengthMeasure, etc.)
+5. Then call generate_ids to produce an IDS specification that combines:
+   - The IFC class from the mapping
+   - All mapped properties as requirements
+   - Custom properties as additional requirements with suggested Pset names
+
+Data type mapping for IDS:
+  - UCKS string → IFCTEXT
+  - UCKS real → IFCREAL (or IFCLENGTHMEASURE/IFCAREAMEASURE based on unit)
+  - UCKS integer → IFCINTEGER
+  - UCKS boolean → IFCBOOLEAN
+  - UCKS enum → IFCLABEL
+  - UCKS date → IFCTEXT
+
+For custom properties without an IFC match, suggest a PropertySet name like
+"Pset_<EntityName>Custom" (e.g. "Pset_BridgePierCustom").
+
+=== IFC QUERY GUIDELINES ===
+
   - Use query_class for property-related questions (PropertySets, Properties).
-  - Use query_class_structure for structural questions (attributes, placement chains,
-    shape representations, inheritance hierarchies, valid enum values, entity closures).
-  - Use search_classes to find classes by keyword (e.g. "bridge", "wall").
-  - Use run_cypher for aggregations, comparisons, traversals, or questions spanning
-    multiple nodes (e.g. "which entities reference IfcProduct?").
-  - Always ground your answers in the actual graph data returned by tools.
+  - Use query_class_structure for structural questions (attributes, inheritance).
+  - Use search_classes to find classes by keyword.
+  - Use run_cypher for aggregations, comparisons, multi-node traversals.
+  - Always ground answers in actual graph data returned by tools.
   - Be concise but thorough. Use bullet points and structured formatting.
-  - When listing properties, group them by PropertySet.
 
-IDS Generation:
-  When the user asks to generate an IDS specification, create requirements, or
-  produce delivery specifications, follow this workflow:
-  1. First use query_class / search_classes to find the correct IFC class.
-  2. Use query_class to get exact PropertySet names, Property names, and data types.
-  3. Then call generate_ids with a JSON object matching this structure.
-  IMPORTANT: Do NOT ask the user for clarification. Make reasonable decisions yourself:
-  - Include ALL relevant properties from the queried class as "required".
-  - Use the data types from the graph.
-  - Generate a descriptive title automatically.
-  - If the conversation discussed specific properties, include those. Otherwise include
-    all properties from the most relevant property sets.
-  Just generate the IDS — do not ask what to include.
-  JSON structure:
-     {
-       "info": {"title": "...", "description": "..."},
-       "specifications": [{
-         "name": "...",
-         "ifcVersion": "IFC4X3_ADD2",
-         "applicability": {
-           "entity": {"name": {"simpleValue": "IFCWALL"}},
-           "maxOccurs": "unbounded"
-         },
-         "requirements": {
-           "properties": [{
-             "propertySet": {"simpleValue": "Pset_WallCommon"},
-             "baseName": {"simpleValue": "IsExternal"},
-             "dataType": "IFCBOOLEAN",
-             "cardinality": "required"
-           }],
-           "attributes": [{
-             "name": {"simpleValue": "Name"},
-             "cardinality": "required"
-           }]
-         }
-       }]
-     }
-  Key rules:
-  - Entity names MUST be UPPERCASE (e.g. "IFCWALL", not "IfcWall").
-  - dataType MUST be UPPERCASE IFC type (e.g. "IFCTEXT", "IFCBOOLEAN", "IFCLENGTHMEASURE").
-  - Data type mapping from graph: String->IFCTEXT, Real->IFCREAL, Boolean->IFCBOOLEAN,
+=== IDS GENERATION ===
+
+  When asked to generate an IDS specification:
+  1. Use query_class to find exact PropertySet/Property names.
+  2. Call generate_ids with structured JSON.
+  - Entity names MUST be UPPERCASE (e.g. "IFCWALL").
+  - dataType MUST be UPPERCASE IFC type (e.g. "IFCTEXT", "IFCBOOLEAN").
+  - Data type mapping: String->IFCTEXT, Real->IFCREAL, Boolean->IFCBOOLEAN,
     Integer->IFCINTEGER, Character->IFCLABEL.
-  - Use exact PropertySet and Property names from the graph (e.g. "Pset_WallCommon", "IsExternal").
-  - Each IdsValue must have either "simpleValue" (string) or "restriction" (object), not both.
-  - If generate_ids returns validation errors, fix the JSON and retry.
 """
 
 # ---------------------------------------------------------------------------
@@ -233,6 +276,64 @@ TOOL_DECLARATIONS = [
             "required": ["ids_json_string"],
         },
     },
+    {
+        "name": "define_entity",
+        "description": (
+            "Define a new civil engineering entity in the Universal Civil Knowledge "
+            "Schema (UCKS). Takes a structured JSON object describing the entity with "
+            "its properties, relationships, and metadata. Validates the definition, "
+            "saves it as YAML, and ingests it into the Neo4j knowledge graph. "
+            "Use this when users describe building elements, infrastructure components, "
+            "facility equipment, or any civil engineering concept."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_json_string": {
+                    "type": "string",
+                    "description": (
+                        "The entity definition as a JSON STRING. Must include: "
+                        "'id' (snake_case), 'name', 'description', 'sector' "
+                        "(building/infrastructure/facility/urban/general), "
+                        "'domain' (structural/architectural/mechanical/etc.), "
+                        "and optionally 'parent', 'property_groups', 'relationships'."
+                    ),
+                }
+            },
+            "required": ["entity_json_string"],
+        },
+    },
+    {
+        "name": "list_ucks_entities",
+        "description": (
+            "List all UCKS entities currently defined in the knowledge library. "
+            "Returns entity id, name, sector, domain, and property/relationship counts. "
+            "Use this to check what has already been defined."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "get_ucks_entity",
+        "description": (
+            "Get the full details of a UCKS entity from the knowledge library — "
+            "all property groups, properties (with types, units, enums), and "
+            "relationships. Use this to retrieve a UCKS entity before exporting "
+            "it to IFC or another format."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "The UCKS entity id (snake_case), e.g. 'bridge_pier', 'retaining_wall'",
+                }
+            },
+            "required": ["entity_id"],
+        },
+    },
 ]
 
 
@@ -338,6 +439,20 @@ def dispatch_tool(name: str, args: dict) -> dict:
         else:
             ids_data = raw
         return generate_ids_from_json(ids_data)
+    elif name == "define_entity":
+        raw = args.get("entity_json_string") or args.get("entity_json", "{}")
+        if isinstance(raw, str):
+            try:
+                entity_data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                return {"error": f"Invalid JSON string: {e}"}
+        else:
+            entity_data = raw
+        return define_entity_from_json(entity_data)
+    elif name == "list_ucks_entities":
+        return {"entities": list_ucks_entities()}
+    elif name == "get_ucks_entity":
+        return get_ucks_entity_detail(args.get("entity_id", ""))
     else:
         return {"error": f"Unknown tool: {name}"}
 
@@ -469,6 +584,12 @@ def run_agent(user_message: str, history: list | None = None) -> tuple:
                 summary = "Ran Cypher query"
             elif fn_name == "generate_ids":
                 summary = "Generated IDS specification"
+            elif fn_name == "define_entity":
+                summary = f"Defined UCKS entity"
+            elif fn_name == "list_ucks_entities":
+                summary = "Listed UCKS entities"
+            elif fn_name == "get_ucks_entity":
+                summary = f"Retrieved UCKS entity '{fn_args.get('entity_id', '?')}'"
 
             log_entry = {
                 "tool": fn_name,
@@ -478,6 +599,12 @@ def run_agent(user_message: str, history: list | None = None) -> tuple:
             # Capture IDS XML for the frontend
             if fn_name == "generate_ids" and isinstance(result, dict):
                 log_entry["ids_xml"] = result.get("ids_xml")
+
+            # Capture UCKS entity for the frontend
+            if fn_name == "define_entity" and isinstance(result, dict):
+                log_entry["ucks_entity_id"] = result.get("entity_id")
+                log_entry["ucks_entity_name"] = result.get("entity_name")
+                log_entry["ucks_yaml_path"] = result.get("yaml_saved")
 
             tool_log.append(log_entry)
 

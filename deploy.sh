@@ -15,7 +15,7 @@ set -euo pipefail
 
 # ---------- Configuration ----------
 PROJECT_ID=$(gcloud config get-value project)
-REGION="europe-west1"           # Change to your preferred region
+REGION="us-central1"
 SERVICE_NAME="ifc-query-engine"
 REPO_NAME="ifc-ai"
 

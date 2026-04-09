@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IFC 4.3 Semantic Query Engine</title>
+    <title>Civil Knowledge Engine</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -30,6 +30,30 @@
         }
 
         .header h1 { font-size: 15px; font-weight: 600; color: #58a6ff; white-space: nowrap; }
+
+        /* --- Tab bar --- */
+        .tab-bar {
+            display: flex;
+            gap: 2px;
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 2px;
+        }
+        .tab-btn {
+            padding: 6px 16px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: #8b949e;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .tab-btn:hover { color: #e1e4e8; background: #21262d; }
+        .tab-btn.active { color: #fff; background: #1f6feb; }
+        .tab-btn.active-define { color: #fff; background: #bf4b8a; }
+        .tab-btn.active-library { color: #fff; background: #238636; }
 
         .search-box { position: relative; flex: 1; max-width: 400px; }
 
@@ -58,10 +82,12 @@
         .autocomplete-item:hover, .autocomplete-item.active { background: #1f6feb33; }
         .autocomplete-item .code { color: #58a6ff; font-weight: 600; }
         .autocomplete-item .name { color: #8b949e; margin-left: 6px; }
+        .autocomplete-item .ucks-code { color: #f778ba; font-weight: 600; }
 
-        .legend { display: flex; gap: 12px; align-items: center; }
+        .legend { display: flex; gap: 10px; align-items: center; }
         .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8b949e; }
         .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .dot-entity { background: #f778ba; }
         .dot-class { background: #58a6ff; }
         .dot-pset { background: #3fb950; }
         .dot-property { background: #d29922; }
@@ -76,9 +102,9 @@
         /* --- Main layout --- */
         .main { display: flex; flex: 1; overflow: hidden; }
 
-        /* --- Chat panel (left) --- */
-        .chat-panel {
-            width: 540px;
+        /* --- Left panel --- */
+        .left-panel {
+            width: 440px;
             min-width: 320px;
             max-width: 70vw;
             background: #161b22;
@@ -89,20 +115,20 @@
             position: relative;
         }
 
-        .chat-resize-handle {
+        .left-resize-handle {
             position: absolute;
             top: 0; right: -3px; bottom: 0;
             width: 6px;
             cursor: col-resize;
             z-index: 20;
         }
-        .chat-resize-handle:hover,
-        .chat-resize-handle.active {
+        .left-resize-handle:hover,
+        .left-resize-handle.active {
             background: #58a6ff;
             opacity: 0.4;
         }
 
-        .chat-header {
+        .panel-top-bar {
             padding: 12px 16px;
             border-bottom: 1px solid #30363d;
             font-size: 13px;
@@ -112,6 +138,7 @@
             align-items: center;
         }
 
+        /* --- Chat area (used by Query + Define tabs) --- */
         .chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -128,6 +155,7 @@
             color: #fff;
             border-bottom-right-radius: 4px;
         }
+        .msg-user.define-mode { background: #bf4b8a; }
         .msg-assistant {
             align-self: flex-start;
             background: #21262d;
@@ -180,7 +208,6 @@
 
         .send-btn {
             padding: 8px 16px;
-            background: #1f6feb;
             border: none;
             border-radius: 6px;
             color: #fff;
@@ -188,7 +215,10 @@
             cursor: pointer;
             font-weight: 600;
         }
-        .send-btn:hover { background: #388bfd; }
+        .send-btn.query-mode { background: #1f6feb; }
+        .send-btn.query-mode:hover { background: #388bfd; }
+        .send-btn.define-mode { background: #bf4b8a; }
+        .send-btn.define-mode:hover { background: #d65da0; }
         .send-btn:disabled { background: #21262d; color: #6e7681; cursor: default; }
 
         .ids-btn {
@@ -204,6 +234,56 @@
         }
         .ids-btn:hover { background: #2ea043; }
         .ids-btn:disabled { background: #21262d; color: #6e7681; cursor: default; }
+
+        /* --- Library panel (left, replaces chat) --- */
+        .library-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+        .library-panel.hidden { display: none; }
+
+        .library-section { margin-bottom: 20px; }
+        .library-section h3 {
+            font-size: 11px; text-transform: uppercase; color: #8b949e;
+            margin-bottom: 8px; letter-spacing: 0.5px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .sector-badge {
+            display: inline-block; padding: 1px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+        }
+        .sector-building { background: #1f6feb33; color: #58a6ff; }
+        .sector-infrastructure { background: #bf4b8a33; color: #f778ba; }
+        .sector-facility { background: #9e6a0333; color: #d29922; }
+        .sector-urban { background: #23863633; color: #3fb950; }
+        .sector-general { background: #30363d; color: #8b949e; }
+
+        .entity-card {
+            padding: 10px 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .entity-card:hover { border-color: #f778ba; }
+        .entity-card-name { font-size: 13px; font-weight: 600; color: #f778ba; }
+        .entity-card-desc { font-size: 11px; color: #8b949e; margin-top: 2px; }
+        .entity-card-meta { font-size: 10px; color: #6e7681; margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .export-btn {
+            padding: 2px 8px; font-size: 10px; font-weight: 600;
+            background: #1f6feb; border: none; border-radius: 4px;
+            color: #fff; cursor: pointer; white-space: nowrap;
+        }
+        .export-btn:hover { background: #388bfd; }
+
+        .library-empty {
+            text-align: center; padding: 40px 20px; color: #6e7681;
+        }
+        .library-empty p { margin-bottom: 8px; font-size: 13px; }
+        .library-empty .hint { font-size: 11px; color: #484f58; }
 
         /* --- Graph panel (right) --- */
         #graph-container {
@@ -222,10 +302,23 @@
 
         /* --- Side panel (right, details) --- */
         .side-panel {
-            width: 320px; background: #161b22; border-left: 1px solid #30363d;
-            overflow-y: auto; flex-shrink: 0; transition: width 0.2s;
+            width: 320px; min-width: 200px; max-width: 60vw;
+            background: #161b22; border-left: 1px solid #30363d;
+            overflow-y: auto; flex-shrink: 0; position: relative;
         }
-        .side-panel.collapsed { width: 0; overflow: hidden; }
+        .side-panel.collapsed { width: 0; min-width: 0; overflow: hidden; }
+        .side-resize-handle {
+            position: absolute;
+            top: 0; left: -3px; bottom: 0;
+            width: 6px;
+            cursor: col-resize;
+            z-index: 20;
+        }
+        .side-resize-handle:hover,
+        .side-resize-handle.active {
+            background: #58a6ff;
+            opacity: 0.4;
+        }
         .panel-header {
             padding: 12px 16px; border-bottom: 1px solid #30363d;
             display: flex; justify-content: space-between; align-items: center;
@@ -237,6 +330,7 @@
         .detail-section p { font-size: 12px; line-height: 1.5; color: #c9d1d9; }
         .detail-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; margin: 2px; }
         .tag-class { background: #1f6feb33; color: #58a6ff; }
+        .tag-entity { background: #bf4b8a33; color: #f778ba; }
         .tag-pset { background: #23863633; color: #3fb950; }
         .tag-property { background: #9e6a0333; color: #d29922; }
         .tag-parent { background: #6e40c933; color: #a371f7; }
@@ -252,7 +346,6 @@
         .spinner { width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Class links in chat messages */
         .class-link { color: #58a6ff; cursor: pointer; text-decoration: underline; }
         .class-link:hover { color: #79c0ff; }
 
@@ -289,6 +382,28 @@
         .ids-xml .xml-val { color: #a5d6ff; }
         .ids-collapsed .ids-xml { display: none; }
 
+        /* YAML preview */
+        .yaml-preview {
+            margin-top: 8px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .yaml-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 12px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            font-size: 11px; font-weight: 600; color: #f778ba;
+        }
+        .yaml-content {
+            max-height: 300px; overflow: auto; padding: 10px 12px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 11px; line-height: 1.5; color: #c9d1d9;
+            white-space: pre;
+        }
+
         /* --- Token gate overlay --- */
         #tokenGate {
             position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -321,7 +436,7 @@
 <!-- Token gate -->
 <div id="tokenGate">
     <div class="token-box">
-        <h2>IFC 4.3 Query Engine</h2>
+        <h2>Civil Knowledge Engine</h2>
         <p>Enter your access token to continue</p>
         <input type="text" id="tokenInput" placeholder="Paste your access token" autocomplete="off">
         <button class="token-btn" id="tokenSubmit">Enter</button>
@@ -331,12 +446,18 @@
 
 <!-- Header -->
 <div class="header">
-    <h1>IFC 4.3 Query Engine</h1>
+    <h1>Civil Knowledge Engine</h1>
+    <div class="tab-bar">
+        <button class="tab-btn active-library" id="tabLibrary" data-tab="library">Library</button>
+        <button class="tab-btn" id="tabQuery" data-tab="query">Query</button>
+        <button class="tab-btn" id="tabDefine" data-tab="define">Define</button>
+    </div>
     <div class="search-box">
-        <input type="text" id="searchInput" placeholder="Search class (IfcWall, Bridge...)" autocomplete="off">
+        <input type="text" id="searchInput" placeholder="Search IFC class or UCKS entity..." autocomplete="off">
         <div class="autocomplete" id="autocomplete"></div>
     </div>
     <div class="legend">
+        <div class="legend-item"><div class="legend-dot dot-entity"></div>UCKS</div>
         <div class="legend-item"><div class="legend-dot dot-class"></div>Class</div>
         <div class="legend-item"><div class="legend-dot dot-pset"></div>PSet</div>
         <div class="legend-item"><div class="legend-dot dot-property"></div>Prop</div>
@@ -350,24 +471,66 @@
 
 <!-- Main -->
 <div class="main">
-    <!-- Chat panel (left) -->
-    <div class="chat-panel" id="chatPanel">
-        <div class="chat-header">
-            <span>Chat</span>
-            <button class="btn" id="resetChat" style="font-size:11px; padding:3px 8px;">New Chat</button>
-        </div>
-        <div class="chat-messages" id="chatMessages">
-            <div class="msg msg-assistant">
-                <p>Hi! I'm the IFC 4.3 Query Engine. Ask me anything about IFC classes, property sets, or properties.</p>
-                <p>Try: <span class="class-link" onclick="sendChat('What properties does IfcBridge need?')">What properties does IfcBridge need?</span></p>
+    <!-- Left panel -->
+    <div class="left-panel" id="leftPanel">
+
+        <!-- === LIBRARY TAB === -->
+        <div id="libraryView" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+            <div class="panel-top-bar">
+                <span>UCKS Library</span>
+                <div style="display:flex;gap:4px;">
+                    <button class="btn" id="refreshLibrary" style="font-size:11px; padding:3px 8px;">Refresh</button>
+                    <button class="btn" id="clearLibrary" style="font-size:11px; padding:3px 8px; color:#f85149;">Clear</button>
+                </div>
+            </div>
+            <div class="library-panel" id="libraryContent" style="flex:1; overflow-y:auto;">
+                <div class="library-empty">
+                    <p>No entities defined yet</p>
+                    <p class="hint">Switch to the Define tab and describe a civil engineering concept to get started.</p>
+                </div>
             </div>
         </div>
-        <div class="chat-input-area">
-            <input type="text" id="chatInput" placeholder="Ask about IFC 4.3..." autocomplete="off">
-            <button class="send-btn" id="sendBtn">Send</button>
-            <button class="ids-btn" id="idsBtn" title="Generate IDS specification based on the current conversation">IDS</button>
+
+        <!-- === QUERY TAB === -->
+        <div id="queryView" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+            <div class="panel-top-bar">
+                <span>IFC 4.3 Query</span>
+                <button class="btn" id="resetQueryChat" style="font-size:11px; padding:3px 8px;">New Chat</button>
+            </div>
+            <div class="chat-messages" id="queryMessages">
+                <div class="msg msg-assistant">
+                    <p>Ask me anything about IFC 4.3 classes, property sets, or properties.</p>
+                    <p>Try: <span class="class-link" onclick="sendChat('query','What properties does IfcBridge need?')">What properties does IfcBridge need?</span></p>
+                    <p>Or: <span class="class-link" onclick="sendChat('query','Compare IfcWall and IfcCurtainWall properties')">Compare IfcWall and IfcCurtainWall</span></p>
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="queryInput" placeholder="Ask about IFC 4.3..." autocomplete="off">
+                <button class="send-btn query-mode" id="querySendBtn">Send</button>
+                <button class="ids-btn" id="idsBtn" title="Generate IDS specification">IDS</button>
+            </div>
         </div>
-        <div class="chat-resize-handle" id="chatResizeHandle"></div>
+
+        <!-- === DEFINE TAB === -->
+        <div id="defineView" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+            <div class="panel-top-bar">
+                <span>Define UCKS Entity</span>
+                <button class="btn" id="resetDefineChat" style="font-size:11px; padding:3px 8px;">New Chat</button>
+            </div>
+            <div class="chat-messages" id="defineMessages">
+                <div class="msg msg-assistant">
+                    <p>Describe any civil engineering concept and I'll structure it into a UCKS entity with properties, relationships, and constraints.</p>
+                    <p>Try: <span class="class-link" onclick="sendChat('define','A retaining wall holds back soil. It has height, thickness, and can be cantilever, gravity, or anchored type. It is founded on a foundation.')">Define a retaining wall</span></p>
+                    <p>Or: <span class="class-link" onclick="sendChat('define','A bridge pier is a vertical support that transfers deck loads to the foundation. It has height, cross-section shape (circular or rectangular), number of columns, and design load capacity in kN.')">Define a bridge pier</span></p>
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="defineInput" placeholder="Describe a civil engineering concept..." autocomplete="off">
+                <button class="send-btn define-mode" id="defineSendBtn">Define</button>
+            </div>
+        </div>
+
+        <div class="left-resize-handle" id="leftResizeHandle"></div>
     </div>
 
     <!-- Graph panel (center) -->
@@ -375,14 +538,15 @@
         <div id="graph-container"></div>
         <div id="overlay">
             <div>
-                <p style="font-size: 14px; color: #58a6ff;">Graph Visualization</p>
-                <p style="margin-top: 6px; color: #8b949e; font-size: 12px;">Search a class or ask a question to see its graph</p>
+                <p style="font-size: 14px; color: #58a6ff;">Civil Knowledge Engine</p>
+                <p style="margin-top: 6px; color: #8b949e; font-size: 12px;">Browse the library, query IFC 4.3, or define new concepts</p>
             </div>
         </div>
     </div>
 
     <!-- Side panel (right) -->
     <div class="side-panel collapsed" id="sidePanel">
+        <div class="side-resize-handle" id="sideResizeHandle"></div>
         <div class="panel-header"><h2>Node Details</h2></div>
         <div class="panel-body" id="panelBody">
             <p style="color: #8b949e; font-size: 12px;">Click a node to see details.</p>
@@ -407,12 +571,13 @@ var network = null;
 var allNodes = null;
 var allEdges = null;
 var searchTimeout = null;
-var sessionId = '';
+var querySessionId = '';
+var defineSessionId = '';
 var chatBusy = false;
+var currentTab = 'library';
 var API_KEY = '{{ api_key | default("", true) }}';
 var ACCESS_TOKEN = '';
 
-// Helper: build headers with API key + access token
 function apiHeaders(extra) {
     var h = {};
     if (API_KEY) h['X-API-Key'] = API_KEY;
@@ -430,7 +595,6 @@ function apiHeaders(extra) {
     var btn = document.getElementById('tokenSubmit');
     var error = document.getElementById('tokenError');
 
-    // Check URL param first, then localStorage
     var params = new URLSearchParams(window.location.search);
     var urlToken = params.get('token');
     var storedToken = localStorage.getItem('ifc_access_token');
@@ -441,12 +605,11 @@ function apiHeaders(extra) {
             if (valid) {
                 ACCESS_TOKEN = initialToken;
                 localStorage.setItem('ifc_access_token', initialToken);
-                // Clean token from URL without reload
                 if (urlToken && window.history.replaceState) {
-                    var cleanUrl = window.location.pathname;
-                    window.history.replaceState({}, '', cleanUrl);
+                    window.history.replaceState({}, '', window.location.pathname);
                 }
                 gate.classList.add('hidden');
+                loadLibrary();
             } else {
                 localStorage.removeItem('ifc_access_token');
                 gate.classList.remove('hidden');
@@ -474,6 +637,7 @@ function apiHeaders(extra) {
                 ACCESS_TOKEN = token;
                 localStorage.setItem('ifc_access_token', token);
                 gate.classList.add('hidden');
+                loadLibrary();
             } else {
                 error.style.display = 'block';
                 input.select();
@@ -482,10 +646,157 @@ function apiHeaders(extra) {
     }
 
     btn.addEventListener('click', submit);
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') submit();
-    });
+    input.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
 })();
+
+// ============================
+// Tab switching
+// ============================
+function switchTab(tab) {
+    currentTab = tab;
+    var tabs = document.querySelectorAll('.tab-btn');
+    tabs.forEach(function(t) {
+        t.className = 'tab-btn';
+        if (t.dataset.tab === tab) {
+            if (tab === 'define') t.className = 'tab-btn active-define';
+            else if (tab === 'library') t.className = 'tab-btn active-library';
+            else t.className = 'tab-btn active';
+        }
+    });
+
+    document.getElementById('libraryView').style.display = tab === 'library' ? 'flex' : 'none';
+    document.getElementById('queryView').style.display = tab === 'query' ? 'flex' : 'none';
+    document.getElementById('defineView').style.display = tab === 'define' ? 'flex' : 'none';
+
+    if (tab === 'library') loadLibrary();
+    if (tab === 'query') document.getElementById('queryInput').focus();
+    if (tab === 'define') document.getElementById('defineInput').focus();
+}
+
+document.getElementById('tabLibrary').addEventListener('click', function() { switchTab('library'); });
+document.getElementById('tabQuery').addEventListener('click', function() { switchTab('query'); });
+document.getElementById('tabDefine').addEventListener('click', function() { switchTab('define'); });
+
+// ============================
+// Library
+// ============================
+function loadLibrary() {
+    var container = document.getElementById('libraryContent');
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#6e7681;"><div class="spinner"></div></div>';
+
+    fetch('/api/ucks/entities', { headers: apiHeaders() })
+        .then(function(r) { return r.json(); })
+        .then(function(entities) {
+            if (!entities || entities.length === 0 || entities.error) {
+                container.innerHTML =
+                    '<div class="library-empty">' +
+                    '<p>No entities defined yet</p>' +
+                    '<p class="hint">Switch to the <strong>Define</strong> tab and describe a civil engineering concept to get started.</p>' +
+                    '</div>';
+                return;
+            }
+
+            var sectors = {};
+            entities.forEach(function(e) {
+                var s = e.sector || 'general';
+                if (!sectors[s]) sectors[s] = [];
+                sectors[s].push(e);
+            });
+
+            var sectorOrder = ['building', 'infrastructure', 'facility', 'urban', 'general'];
+            var html = '';
+            sectorOrder.forEach(function(sector) {
+                if (!sectors[sector]) return;
+                html += '<div class="library-section">';
+                html += '<h3><span class="sector-badge sector-' + sector + '">' + sector + '</span> ' + sectors[sector].length + ' entities</h3>';
+                sectors[sector].forEach(function(e) {
+                    html += '<div class="entity-card" onclick="loadUcksGraph(\'' + e.id + '\')">';
+                    html += '<div class="entity-card-name">' + e.name + '</div>';
+                    if (e.description) html += '<div class="entity-card-desc">' + (e.description || '').substring(0, 100) + '</div>';
+                    html += '<div class="entity-card-meta"><span>' + (e.domain || '') + ' | ' + (e.property_groups || 0) + ' groups | ' + (e.properties || 0) + ' props</span>';
+                    html += '<button class="export-btn" style="background:#6e40c9;" onclick="event.stopPropagation(); viewYaml(\'' + e.id + '\')">YAML</button>';
+                    html += '<button class="export-btn" onclick="event.stopPropagation(); exportToIfc(\'' + e.id + '\', \'' + e.name + '\')">Export to IFC</button>';
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            });
+
+            container.innerHTML = html;
+        })
+        .catch(function() {
+            container.innerHTML = '<div class="library-empty"><p style="color:#f85149;">Failed to load library</p></div>';
+        });
+}
+
+document.getElementById('refreshLibrary').addEventListener('click', loadLibrary);
+document.getElementById('clearLibrary').addEventListener('click', function() {
+    if (!confirm('Delete all UCKS entities from the library?')) return;
+    fetch('/api/ucks/clear', { method: 'POST', headers: apiHeaders() })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { alert('Error: ' + data.error); return; }
+            loadLibrary();
+        })
+        .catch(function(err) { alert('Error: ' + err.message); });
+});
+
+function viewYaml(entityId) {
+    var panel = document.getElementById('sidePanel');
+    panel.classList.remove('collapsed');
+    var body = document.getElementById('panelBody');
+    body.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner"></div></div>';
+
+    fetch('/api/ucks/yaml/' + encodeURIComponent(entityId), { headers: apiHeaders() })
+        .then(function(r) { return r.text(); })
+        .then(function(yaml) {
+            var escaped = yaml.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            body.innerHTML =
+                '<div class="detail-section"><h3>UCKS YAML — ' + entityId + '</h3></div>' +
+                '<div style="display:flex;gap:6px;margin-bottom:10px;">' +
+                '<button class="export-btn" style="background:#6e40c9;" onclick="copyYaml()">Copy</button>' +
+                '<button class="export-btn" style="background:#238636;" onclick="downloadYaml(\'' + entityId + '\')">Download</button>' +
+                '</div>' +
+                '<pre id="yamlContent" style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;font-size:11px;line-height:1.6;color:#c9d1d9;overflow:auto;max-height:calc(100vh - 200px);white-space:pre;font-family:Consolas,monospace;">' + escaped + '</pre>';
+            // Store raw yaml for copy/download
+            body.dataset.yaml = yaml;
+            body.dataset.entityId = entityId;
+        })
+        .catch(function(err) {
+            body.innerHTML = '<p style="color:#f85149;">Failed to load YAML: ' + err.message + '</p>';
+        });
+}
+
+function copyYaml() {
+    var yaml = document.getElementById('panelBody').dataset.yaml;
+    navigator.clipboard.writeText(yaml).then(function() {
+        var btns = document.querySelectorAll('.export-btn');
+        // Flash feedback not critical
+    });
+}
+
+function downloadYaml(entityId) {
+    var yaml = document.getElementById('panelBody').dataset.yaml;
+    var blob = new Blob([yaml], { type: 'text/yaml' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = entityId + '.yaml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function exportToIfc(entityId, entityName) {
+    // Switch to Query tab and send the export command
+    switchTab('query');
+    var msg = 'Export the UCKS entity "' + entityId + '" (' + entityName + ') to IFC. ' +
+        'First retrieve its full details with get_ucks_entity, then find the closest IFC class, ' +
+        'create a mapping report, and generate an IDS specification. Do not ask questions, just do it.';
+    var ctx = getActiveChat();
+    addChatMessage(ctx.messages, 'user', 'Export ' + entityName + ' to IFC', ctx.mode);
+    _doSendChat(msg, ctx);
+}
 
 // ============================
 // vis.js
@@ -505,9 +816,14 @@ var VIS_OPTIONS = {
     },
     groups: {
         class:    { color: { background: '#1f6feb', border: '#58a6ff' }, size: 26, font: { size: 14, bold: true } },
+        entity:   { color: { background: '#bf4b8a', border: '#f778ba' }, size: 26, font: { size: 14, bold: true } },
         parent:   { color: { background: '#6e40c9', border: '#a371f7' }, size: 20, font: { size: 12 } },
         pset:     { color: { background: '#238636', border: '#3fb950' }, size: 16 },
-        property: { color: { background: '#9e6a03', border: '#d29922' }, size: 10, font: { size: 9 } }
+        property: { color: { background: '#9e6a03', border: '#d29922' }, size: 10, font: { size: 9 } },
+        attribute:{ color: { background: '#6e40c9', border: '#a371f7' }, size: 12, font: { size: 10 } },
+        type:     { color: { background: '#30363d', border: '#6e7681' }, size: 10, font: { size: 9 } },
+        enumeration:{ color: { background: '#9e6a03', border: '#d29922' }, size: 10, font: { size: 9 } },
+        selecttype: { color: { background: '#30363d', border: '#6e7681' }, size: 10, font: { size: 9 } }
     },
     physics: {
         solver: 'forceAtlas2Based',
@@ -529,9 +845,8 @@ function initNetwork(nodes, edges) {
     network.on('doubleClick', function(params) {
         if (params.nodes.length > 0) {
             var node = allNodes.get(params.nodes[0]);
-            if (node && (node.group === 'class' || node.group === 'parent')) {
-                loadClassGraph(params.nodes[0].replace('class:', ''));
-            }
+            if (node && node.group === 'class') loadClassGraph(params.nodes[0].replace('class:', ''));
+            if (node && node.group === 'entity') loadUcksGraph(params.nodes[0].replace('entity:', ''));
         }
     });
     network.on('stabilizationIterationsDone', function() {
@@ -554,7 +869,27 @@ function loadClassGraph(classCode) {
             setTimeout(function() { overlay.classList.add('hidden'); }, 300);
             document.getElementById('statNodes').textContent = 'Nodes: ' + data.nodes.length;
             document.getElementById('statEdges').textContent = 'Edges: ' + data.edges.length;
-            document.getElementById('statClass').textContent = classCode;
+            document.getElementById('statClass').textContent = 'IFC: ' + classCode;
+        })
+        .catch(function(err) { overlay.innerHTML = '<div><p style="color:#f85149;">' + err.message + '</p></div>'; });
+}
+
+function loadUcksGraph(entityId) {
+    var overlay = document.getElementById('overlay');
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = '<div><div class="spinner"></div><p style="color:#f778ba;margin-top:8px;">Loading ' + entityId + '...</p></div>';
+
+    fetch('/api/ucks/graph/' + encodeURIComponent(entityId), { headers: apiHeaders() })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (!data || data.error) { overlay.innerHTML = '<div><p style="color:#f85149;">Not found</p></div>'; return; }
+            document.getElementById('searchInput').value = entityId;
+            if (network) { network.destroy(); network = null; }
+            initNetwork(data.nodes, data.edges);
+            setTimeout(function() { overlay.classList.add('hidden'); }, 300);
+            document.getElementById('statNodes').textContent = 'Nodes: ' + data.nodes.length;
+            document.getElementById('statEdges').textContent = 'Edges: ' + data.edges.length;
+            document.getElementById('statClass').textContent = 'UCKS: ' + entityId;
         })
         .catch(function(err) { overlay.innerHTML = '<div><p style="color:#f85149;">' + err.message + '</p></div>'; });
 }
@@ -564,17 +899,19 @@ function showNodeDetails(nodeId) {
     var node = allNodes.get(nodeId);
     if (!node) return;
 
-    // Ensure panel is visible
     document.getElementById('sidePanel').classList.remove('collapsed');
 
     var panel = document.getElementById('panelBody');
     var meta = node.meta || {};
     var group = node.group || 'unknown';
     var html = '<div class="detail-section"><span class="detail-tag tag-' + group + '">' + group.charAt(0).toUpperCase() + group.slice(1) + '</span></div>';
-    html += '<div class="detail-section"><h3>Code</h3><p>' + (meta.code || node.label || '-') + '</p></div>';
+    html += '<div class="detail-section"><h3>Code / ID</h3><p>' + (meta.code || meta.id || node.label || '-') + '</p></div>';
     if (meta.name) html += '<div class="detail-section"><h3>Name</h3><p>' + meta.name + '</p></div>';
-    if (meta.definition) html += '<div class="detail-section"><h3>Definition</h3><p>' + meta.definition + '</p></div>';
+    if (meta.definition || meta.description) html += '<div class="detail-section"><h3>Description</h3><p>' + (meta.definition || meta.description) + '</p></div>';
+    if (meta.sector) html += '<div class="detail-section"><h3>Sector</h3><p>' + meta.sector + '</p></div>';
+    if (meta.domain) html += '<div class="detail-section"><h3>Domain</h3><p>' + meta.domain + '</p></div>';
     if (meta.data_type) html += '<div class="detail-section"><h3>Data Type</h3><p>' + meta.data_type + '</p></div>';
+    if (meta.unit) html += '<div class="detail-section"><h3>Unit</h3><p>' + meta.unit + '</p></div>';
     if (meta.property_value_kind) html += '<div class="detail-section"><h3>Value Kind</h3><p>' + meta.property_value_kind + '</p></div>';
     if (meta.allowed_values && meta.allowed_values.length > 0) {
         html += '<div class="detail-section"><h3>Allowed Values (' + meta.allowed_values.length + ')</h3><ul class="allowed-list">';
@@ -618,53 +955,96 @@ searchInput.addEventListener('keydown', function(e) {
 function updateAC(items) { for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === acIndex); }
 
 function fetchSuggestions(term) {
-    fetch('/api/classes?search=' + encodeURIComponent(term), { headers: apiHeaders() })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (!data || data.length === 0) { autocompleteEl.classList.remove('visible'); return; }
-            var html = '';
-            data.forEach(function(c) {
-                html += '<div class="autocomplete-item" data-code="' + c.code + '"><span class="code">' + c.code + '</span><span class="name">' + (c.name || '') + '</span></div>';
+    // Fetch both IFC classes and UCKS entities in parallel
+    var ifcP = fetch('/api/classes?search=' + encodeURIComponent(term), { headers: apiHeaders() }).then(function(r) { return r.json(); }).catch(function() { return []; });
+    var ucksP = fetch('/api/ucks/entities', { headers: apiHeaders() }).then(function(r) { return r.json(); }).catch(function() { return []; });
+
+    Promise.all([ifcP, ucksP]).then(function(results) {
+        var ifcClasses = results[0] || [];
+        var ucksEntities = (results[1] || []).filter(function(e) {
+            return e.name.toLowerCase().indexOf(term.toLowerCase()) >= 0 || e.id.toLowerCase().indexOf(term.toLowerCase()) >= 0;
+        });
+
+        if (ifcClasses.length === 0 && ucksEntities.length === 0) {
+            autocompleteEl.classList.remove('visible');
+            return;
+        }
+
+        var html = '';
+
+        // UCKS entities first
+        ucksEntities.slice(0, 10).forEach(function(e) {
+            html += '<div class="autocomplete-item" data-type="ucks" data-id="' + e.id + '">' +
+                '<span class="ucks-code">' + e.name + '</span>' +
+                '<span class="name">UCKS | ' + (e.sector || '') + '</span></div>';
+        });
+
+        // Then IFC classes
+        ifcClasses.slice(0, 20).forEach(function(c) {
+            html += '<div class="autocomplete-item" data-type="ifc" data-code="' + c.code + '">' +
+                '<span class="code">' + c.code + '</span>' +
+                '<span class="name">' + (c.name || '') + '</span></div>';
+        });
+
+        autocompleteEl.innerHTML = html;
+        autocompleteEl.classList.add('visible');
+
+        var items = autocompleteEl.querySelectorAll('.autocomplete-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                autocompleteEl.classList.remove('visible');
+                if (this.dataset.type === 'ucks') {
+                    loadUcksGraph(this.dataset.id);
+                    searchInput.value = this.dataset.id;
+                } else {
+                    loadClassGraph(this.dataset.code);
+                    searchInput.value = this.dataset.code;
+                }
             });
-            autocompleteEl.innerHTML = html;
-            autocompleteEl.classList.add('visible');
-            var items = autocompleteEl.querySelectorAll('.autocomplete-item');
-            for (var i = 0; i < items.length; i++) {
-                items[i].addEventListener('mousedown', function(e) {
-                    e.preventDefault();
-                    var code = this.getAttribute('data-code');
-                    searchInput.value = code;
-                    autocompleteEl.classList.remove('visible');
-                    loadClassGraph(code);
-                });
-            }
-        })
-        .catch(function() {});
+        }
+    });
 }
 
 document.addEventListener('mousedown', function(e) { if (!e.target.closest('.search-box')) autocompleteEl.classList.remove('visible'); });
 
 // ============================
-// Chat
+// Chat (shared logic for Query + Define)
 // ============================
-var chatMessages = document.getElementById('chatMessages');
-var chatInput = document.getElementById('chatInput');
-var sendBtn = document.getElementById('sendBtn');
+function getActiveChat() {
+    if (currentTab === 'define') {
+        return {
+            messages: document.getElementById('defineMessages'),
+            input: document.getElementById('defineInput'),
+            sendBtn: document.getElementById('defineSendBtn'),
+            sessionKey: 'define',
+            mode: 'define'
+        };
+    }
+    return {
+        messages: document.getElementById('queryMessages'),
+        input: document.getElementById('queryInput'),
+        sendBtn: document.getElementById('querySendBtn'),
+        sessionKey: 'query',
+        mode: 'query'
+    };
+}
 
-function addChatMessage(role, content) {
+function addChatMessage(container, role, content, mode) {
     var div = document.createElement('div');
     div.className = 'msg msg-' + role;
+    if (role === 'user' && mode === 'define') div.classList.add('define-mode');
     if (role === 'assistant') {
         div.innerHTML = formatMarkdown(content);
     } else {
         div.textContent = content;
     }
-    chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
     return div;
 }
 
-function addToolPills(tools) {
+function addToolPills(container, tools) {
     if (!tools || tools.length === 0) return;
     var div = document.createElement('div');
     div.className = 'msg-tools';
@@ -674,17 +1054,17 @@ function addToolPills(tools) {
         pill.textContent = t.summary;
         div.appendChild(pill);
     });
-    chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
 }
 
-function addThinking() {
+function addThinking(container) {
     var div = document.createElement('div');
     div.className = 'msg-thinking';
     div.id = 'thinkingMsg';
     div.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Thinking...';
-    chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
     return div;
 }
 
@@ -693,28 +1073,25 @@ function removeThinking() {
     if (el) el.remove();
 }
 
-function sendChatWithDisplay(backendMsg, displayMsg) {
-    if (chatBusy) return;
-    if (!backendMsg) return;
-    addChatMessage('user', displayMsg || backendMsg);
-    _doSendChat(backendMsg);
-}
+function sendChat(forceTab, text) {
+    if (forceTab && forceTab !== currentTab) switchTab(forceTab);
 
-function sendChat(text) {
+    var ctx = getActiveChat();
     if (chatBusy) return;
-    var message = text || chatInput.value.trim();
+    var message = text || ctx.input.value.trim();
     if (!message) return;
 
-    chatInput.value = '';
-    addChatMessage('user', message);
-    _doSendChat(message);
+    ctx.input.value = '';
+    addChatMessage(ctx.messages, 'user', message, ctx.mode);
+    _doSendChat(message, ctx);
 }
 
-function _doSendChat(message) {
-    addThinking();
+function _doSendChat(message, ctx) {
+    addThinking(ctx.messages);
     chatBusy = true;
-    sendBtn.disabled = true;
-    document.getElementById('idsBtn').disabled = true;
+    ctx.sendBtn.disabled = true;
+
+    var sessionId = ctx.sessionKey === 'define' ? defineSessionId : querySessionId;
 
     fetch('/api/chat', {
         method: 'POST',
@@ -725,71 +1102,89 @@ function _doSendChat(message) {
     .then(function(data) {
         removeThinking();
         chatBusy = false;
-        sendBtn.disabled = false;
-        document.getElementById('idsBtn').disabled = false;
+        ctx.sendBtn.disabled = false;
 
         if (data.error) {
-            addChatMessage('assistant', 'Error: ' + data.error);
+            addChatMessage(ctx.messages, 'assistant', 'Error: ' + data.error);
             return;
         }
 
-        sessionId = data.session_id || sessionId;
+        // Update session
+        if (ctx.sessionKey === 'define') defineSessionId = data.session_id || defineSessionId;
+        else querySessionId = data.session_id || querySessionId;
 
-        // Show tool pills
-        addToolPills(data.tools_used);
+        addToolPills(ctx.messages, data.tools_used);
+        addChatMessage(ctx.messages, 'assistant', data.answer || '(no response)');
 
-        // Show answer
-        addChatMessage('assistant', data.answer || '(no response)');
-
-        // Show IDS preview and auto-download if generated
+        // IDS preview
         if (data.ids_xml) {
-            renderIdsPreview(data.ids_xml, data.ids_filename);
+            renderIdsPreview(ctx.messages, data.ids_xml, data.ids_filename);
             autoDownloadIds(data.ids_xml, data.ids_filename);
         }
 
-        // Update graph if a class was queried
-        if (data.graph_class) {
-            try { loadClassGraph(data.graph_class); } catch(e) { console.warn('Graph update failed:', e); }
+        // UCKS entity defined — load its graph + refresh library
+        if (data.ucks_entity_id) {
+            try { loadUcksGraph(data.ucks_entity_id); } catch(e) {}
+            if (currentTab !== 'library') {
+                // Refresh library in background
+                setTimeout(loadLibrary, 500);
+            }
+        }
+        // IFC class queried
+        else if (data.graph_class) {
+            try { loadClassGraph(data.graph_class); } catch(e) {}
         }
     })
     .catch(function(err) {
         removeThinking();
         chatBusy = false;
-        sendBtn.disabled = false;
-        document.getElementById('idsBtn').disabled = false;
-        addChatMessage('assistant', 'Connection error: ' + err.message);
+        ctx.sendBtn.disabled = false;
+        addChatMessage(ctx.messages, 'assistant', 'Connection error: ' + err.message);
     });
 }
 
-chatInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+// Query tab input
+document.getElementById('queryInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat('query'); }
 });
-sendBtn.addEventListener('click', function() { sendChat(); });
+document.getElementById('querySendBtn').addEventListener('click', function() { sendChat('query'); });
 
-// IDS button — sends a generate_ids request with hidden system instruction
+// Define tab input
+document.getElementById('defineInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat('define'); }
+});
+document.getElementById('defineSendBtn').addEventListener('click', function() { sendChat('define'); });
+
+// IDS button
 document.getElementById('idsBtn').addEventListener('click', function() {
     if (chatBusy) return;
-    var userText = chatInput.value.trim();
-    var displayMsg = userText
-        ? userText + '\n\nGenerate an IDS specification for this.'
-        : 'Generate an IDS specification based on our conversation.';
-    var hiddenMsg = userText
-        ? userText + '\n\nGenerate an IDS specification for this. Do not ask questions or clarifications, just generate it immediately using the data from the graph.'
-        : 'Generate an IDS specification based on our conversation so far. Include all relevant properties discussed. Do not ask questions or clarifications, just generate it immediately using the data from the graph.';
-    chatInput.value = '';
-    sendChatWithDisplay(hiddenMsg, displayMsg);
+    var ctx = getActiveChat();
+    var userText = ctx.input.value.trim();
+    var msg = userText
+        ? userText + '\n\nGenerate an IDS specification for this. Do not ask questions, just generate it.'
+        : 'Generate an IDS specification based on our conversation. Include all relevant properties. Do not ask questions, just generate it.';
+    ctx.input.value = '';
+    addChatMessage(ctx.messages, 'user', userText ? userText + ' (+ generate IDS)' : 'Generate IDS specification', ctx.mode);
+    _doSendChat(msg, ctx);
 });
 
-document.getElementById('resetChat').addEventListener('click', function() {
-    if (sessionId) {
-        fetch('/api/chat/reset', {
-            method: 'POST',
-            headers: apiHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ session_id: sessionId })
-        });
+// Reset buttons
+document.getElementById('resetQueryChat').addEventListener('click', function() {
+    if (querySessionId) {
+        fetch('/api/chat/reset', { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ session_id: querySessionId }) });
     }
-    sessionId = '';
-    chatMessages.innerHTML = '<div class="msg msg-assistant"><p>Chat reset. Ask me anything about IFC 4.3!</p></div>';
+    querySessionId = '';
+    document.getElementById('queryMessages').innerHTML =
+        '<div class="msg msg-assistant"><p>Chat reset. Ask me anything about IFC 4.3!</p></div>';
+});
+
+document.getElementById('resetDefineChat').addEventListener('click', function() {
+    if (defineSessionId) {
+        fetch('/api/chat/reset', { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ session_id: defineSessionId }) });
+    }
+    defineSessionId = '';
+    document.getElementById('defineMessages').innerHTML =
+        '<div class="msg msg-assistant"><p>Chat reset. Describe a civil engineering concept to define it!</p></div>';
 });
 
 // ============================
@@ -797,23 +1192,15 @@ document.getElementById('resetChat').addEventListener('click', function() {
 // ============================
 function formatMarkdown(text) {
     if (!text) return '';
-    // Escape HTML
     var s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Bold
     s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    // Inline code
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-    // Bullet lists
     s = s.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
     s = s.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
-    // Fix nested ul
     s = s.replace(/<\/ul>\s*<ul>/g, '');
-    // Numbered lists
     s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-    // Paragraphs
     s = s.replace(/\n\n/g, '</p><p>');
     s = s.replace(/\n/g, '<br>');
-    // Make IFC class codes clickable
     s = s.replace(/\b(Ifc[A-Z][a-zA-Z]+)\b/g, '<span class="class-link" onclick="loadClassGraph(\'$1\')">$1</span>');
     return '<p>' + s + '</p>';
 }
@@ -821,11 +1208,10 @@ function formatMarkdown(text) {
 // ============================
 // IDS Preview
 // ============================
-function renderIdsPreview(xmlString, filename) {
+function renderIdsPreview(container, xmlString, filename) {
     var div = document.createElement('div');
     div.className = 'ids-preview';
 
-    // Syntax-highlight the XML
     var highlighted = xmlString
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/(&lt;\/?)([\w:]+)/g, '$1<span class="xml-tag">$2</span>')
@@ -842,12 +1228,11 @@ function renderIdsPreview(xmlString, filename) {
         '</div></div>' +
         '<div class="ids-xml">' + highlighted + '</div>';
 
-    // Store raw XML and filename for copy/download
     div.dataset.xml = xmlString;
     div.dataset.filename = filename || 'specification.ids';
 
-    chatMessages.appendChild(div);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
 }
 
 function toggleIdsXml(btn) {
@@ -891,11 +1276,11 @@ document.getElementById('togglePanel').addEventListener('click', function() {
 });
 
 // ============================
-// Chat panel resize
+// Left panel resize
 // ============================
 (function initResize() {
-    var handle = document.getElementById('chatResizeHandle');
-    var panel = document.getElementById('chatPanel');
+    var handle = document.getElementById('leftResizeHandle');
+    var panel = document.getElementById('leftPanel');
     var dragging = false;
 
     handle.addEventListener('mousedown', function(e) {
@@ -925,6 +1310,47 @@ document.getElementById('togglePanel').addEventListener('click', function() {
         if (network) { network.redraw(); network.fit(); }
     });
 })();
+
+// ============================
+// Side panel resize
+// ============================
+(function initSideResize() {
+    var handle = document.getElementById('sideResizeHandle');
+    var panel = document.getElementById('sidePanel');
+    var dragging = false;
+
+    handle.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        dragging = true;
+        handle.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        var newWidth = window.innerWidth - e.clientX;
+        var min = 200;
+        var max = window.innerWidth * 0.6;
+        if (newWidth >= min && newWidth <= max) {
+            panel.style.width = newWidth + 'px';
+        }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (network) { network.redraw(); network.fit(); }
+    });
+})();
+
+// ============================
+// Init: start on Library tab
+// ============================
+switchTab('library');
 </script>
 </body>
 </html>

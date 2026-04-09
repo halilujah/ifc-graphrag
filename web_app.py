@@ -25,6 +25,7 @@ from config import (
     MAX_CHAT_MESSAGE_LENGTH, PORT,
 )
 from main_orchestrator import run_agent
+from ucks_pipeline import list_ucks_entities, get_ucks_entity_graph, get_ucks_entity_detail, save_entity_yaml, UCKS_OUTPUT_DIR
 
 IDS_OUTPUT_DIR = PROJECT_ROOT / "data" / "ids_output"
 IDS_OUTPUT_DIR.mkdir(exist_ok=True)
@@ -505,11 +506,14 @@ def api_chat():
     graph_class = None
     ids_xml = None
     ids_filename = None
+    ucks_entity_id = None
     for t in tool_log:
         if t["tool"] in ("query_class", "query_class_structure"):
             graph_class = graph_class or t["args"].get("class_code")
         if t.get("ids_xml"):
             ids_xml = t["ids_xml"]
+        if t.get("ucks_entity_id"):
+            ucks_entity_id = t["ucks_entity_id"]
 
     # Save IDS file to data/ids_output/
     if ids_xml:
@@ -529,10 +533,128 @@ def api_chat():
         "answer": answer,
         "tools_used": clean_log,
         "graph_class": graph_class,
+        "ucks_entity_id": ucks_entity_id,
         "session_id": session_id,
         "ids_xml": ids_xml,
         "ids_filename": ids_filename,
     })
+
+
+# ---------------------------------------------------------------------------
+# API: UCKS entity library
+# ---------------------------------------------------------------------------
+
+@app.route("/api/ucks/entities")
+def api_ucks_entities():
+    """List all UCKS entities in the knowledge library."""
+    try:
+        entities = list_ucks_entities()
+        return jsonify(entities)
+    except Exception as e:
+        logger.error("Failed to list UCKS entities: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ucks/clear", methods=["POST"])
+def api_ucks_clear():
+    """Delete all UCKS entities from Neo4j and remove YAML files."""
+    try:
+        from ucks_pipeline import _get_driver
+        driver = _get_driver()
+        with driver.session() as session:
+            result = session.run(
+                "MATCH (n) WHERE n:UCKSEntity OR n:UCKSPropertyGroup OR n:UCKSProperty DETACH DELETE n "
+                "RETURN count(n) AS deleted"
+            )
+            deleted = result.single()["deleted"]
+
+        # Remove YAML files
+        import shutil
+        if UCKS_OUTPUT_DIR.exists():
+            shutil.rmtree(UCKS_OUTPUT_DIR)
+            UCKS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        return jsonify({"status": "ok", "deleted": deleted})
+    except Exception as e:
+        logger.error("Failed to clear UCKS library: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ucks/graph/<entity_id>")
+def api_ucks_graph(entity_id: str):
+    """Return vis.js graph data for a UCKS entity."""
+    try:
+        graph = get_ucks_entity_graph(entity_id)
+        if "error" in graph:
+            return jsonify(graph), 404
+        return jsonify(graph)
+    except Exception as e:
+        logger.error("Failed to get UCKS graph for '%s': %s", entity_id, e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ucks/yaml/<entity_id>")
+def api_ucks_yaml(entity_id: str):
+    """Return the YAML file content for a UCKS entity."""
+    import yaml as _yaml
+
+    # Try to find existing YAML file
+    for sector_dir in UCKS_OUTPUT_DIR.iterdir():
+        if sector_dir.is_dir():
+            yaml_path = sector_dir / f"{entity_id}.yaml"
+            if yaml_path.exists():
+                return app.response_class(
+                    yaml_path.read_text(encoding="utf-8"),
+                    mimetype="text/yaml",
+                    headers={"Content-Disposition": f"inline; filename={entity_id}.yaml"},
+                )
+
+    # Not on disk — rebuild from Neo4j
+    try:
+        detail = get_ucks_entity_detail(entity_id)
+        if "error" in detail:
+            return jsonify(detail), 404
+
+        # Build a clean YAML dict from the detail
+        d = {
+            "schema": "ucks/0.1",
+            "sector": detail.get("sector", ""),
+            "domain": detail.get("domain", ""),
+            "entity": {
+                "id": detail.get("id", entity_id),
+                "name": detail.get("name", ""),
+                "description": detail.get("description", ""),
+            },
+        }
+        if detail.get("parent"):
+            d["entity"]["parent"] = detail["parent"].get("id", "")
+
+        if detail.get("property_groups"):
+            groups = []
+            for pg in detail["property_groups"]:
+                group = {"id": pg.get("name", "").lower().replace(" ", "_"), "name": pg["name"]}
+                props = []
+                for p in pg.get("properties", []):
+                    prop = {"id": p["name"].lower().replace(" ", "_"), "name": p["name"], "data_type": p.get("data_type", "string")}
+                    if p.get("unit"): prop["unit"] = p["unit"]
+                    if p.get("required"): prop["required"] = True
+                    if p.get("enum_values"): prop["enumeration"] = {"id": prop["id"] + "_enum", "values": p["enum_values"]}
+                    props.append(prop)
+                group["properties"] = props
+                groups.append(group)
+            d["entity"]["property_groups"] = groups
+
+        if detail.get("relationships"):
+            rels = []
+            for r in detail["relationships"]:
+                rels.append({"type": r["type"], "target": r["target_id"], "cardinality": r.get("cardinality", "0..*")})
+            d["entity"]["relationships"] = rels
+
+        yaml_str = _yaml.dump(d, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        return app.response_class(yaml_str, mimetype="text/yaml")
+    except Exception as e:
+        logger.error("Failed to get YAML for '%s': %s", entity_id, e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/chat/reset", methods=["POST"])
